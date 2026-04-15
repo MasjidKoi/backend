@@ -20,7 +20,10 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.security import CurrentUser
+from app.db.session import get_db
 from app.dependencies.auth import get_current_user, require_platform_admin
 from app.models.enums import AdminRole
 from app.schemas.auth import (
@@ -153,22 +156,30 @@ async def verify_totp(
 @router.get(
     "/2fa/factors",
     summary="List enrolled TOTP factors for the current user",
-    description="Returns the list of enrolled factors. Used by frontend to determine "
-                "whether to show /login/enroll (no factors) or /login/2fa (has factors).",
+    description="Returns verified TOTP factors from DB. Used by frontend to determine "
+                "whether to show /login/enroll (empty) or /login/2fa (has factors).",
 )
 async def list_factors(
-    credentials: HTTPAuthorizationCredentials = Depends(_bearer),
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
-    import httpx
-    from app.core.config import settings
-    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
-        resp = await client.get(
-            f"{settings.gotrue_base_url}/factors",
-            headers={"Authorization": f"Bearer {credentials.credentials}"},
-        )
-    if not resp.is_success:
-        return {"factors": []}
-    return resp.json()
+    from sqlalchemy import text as sql_text
+    result = await db.execute(
+        sql_text(
+            "SELECT id, status, friendly_name "
+            "FROM auth.mfa_factors "
+            "WHERE user_id = :uid AND factor_type = 'totp' AND status = 'verified' "
+            "ORDER BY created_at"
+        ),
+        {"uid": str(user.user_id)},
+    )
+    rows = result.mappings().all()
+    return {
+        "factors": [
+            {"id": str(r["id"]), "status": r["status"], "friendly_name": r["friendly_name"]}
+            for r in rows
+        ]
+    }
 
 
 # ── Password reset ─────────────────────────────────────────────────────────────
