@@ -21,6 +21,7 @@ dependencies = [
     "PyJWT>=2.10.0",          # Verify GoTrue-issued HS256 JWTs locally
     "httpx>=0.28.0",           # Async HTTP client for GoTrue proxy calls
     "pyotp>=2.9.0",            # TOTP utilities (QR URI generation / verification)
+    "adhan>=0.1.1",            # Astronomical prayer time calculation (Python port of Adhan-js)
 ]
 
 [dependency-groups]

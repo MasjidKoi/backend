@@ -86,6 +86,19 @@ class Masjid(Base):
         lazy="raise",
         cascade="all, delete-orphan",
     )
+    prayer_times: Mapped[list["PrayerTimeRecord"]] = relationship(  # type: ignore[name-defined]
+        "PrayerTimeRecord",
+        back_populates="masjid",
+        lazy="raise",
+        cascade="all, delete-orphan",
+    )
+    jumah_schedule: Mapped["JumahSchedule"] = relationship(  # type: ignore[name-defined]
+        "JumahSchedule",
+        back_populates="masjid",
+        uselist=False,
+        lazy="raise",
+        cascade="all, delete-orphan",
+    )
 
 
 class MasjidFacilities(Base):

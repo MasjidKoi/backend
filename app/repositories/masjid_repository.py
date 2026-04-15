@@ -142,8 +142,10 @@ class MasjidRepository(BaseRepository[Masjid]):
         await self.db.flush()
 
         # Auto-create 1:1 child rows so every masjid always has them
+        from app.models.prayer_times import JumahSchedule
         self.db.add(MasjidFacilities(masjid_id=masjid.masjid_id))
         self.db.add(MasjidContact(masjid_id=masjid.masjid_id))
+        self.db.add(JumahSchedule(masjid_id=masjid.masjid_id))
         await self.db.flush()
         return masjid
 

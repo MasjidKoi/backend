@@ -62,3 +62,29 @@ class DonationCategory(StrEnum):
     SADAQAH = "sadaqah"
     LILLAH = "lillah"
     CAMPAIGN = "campaign"
+
+
+class Madhab(StrEnum):
+    """
+    Islamic jurisprudence school — affects only Asr prayer calculation.
+    HANAFI uses shadow ratio 2 (later Asr); all others use ratio 1 (earlier Asr).
+    Default for Bangladesh: HANAFI.
+    """
+
+    HANAFI = "hanafi"
+    SHAFI = "shafi"
+    MALIKI = "maliki"
+    HANBALI = "hanbali"
+
+
+class CalculationMethod(StrEnum):
+    """
+    Prayer time calculation method (Fajr/Isha twilight angles).
+    Default for Bangladesh: KARACHI (University of Islamic Sciences, Fajr 18°, Isha 18°).
+    """
+
+    KARACHI = "karachi"
+    MUSLIM_WORLD_LEAGUE = "muslim_world_league"
+    ISNA = "isna"
+    EGYPT = "egypt"
+    MAKKAH = "makkah"

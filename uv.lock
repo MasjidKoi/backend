@@ -3,6 +3,12 @@ revision = 3
 requires-python = ">=3.12"
 
 [[package]]
+name = "adhan"
+version = "0.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/57/ef/b76c5fe56d70eea0dd5062e3a90ce01f4f6698d93a1301d3388554527ebc/adhan-0.1.1.tar.gz", hash = "sha256:05d6aef77dcf4be4d17dac258bd6c23ad15625f34d695ea0fdf4cdfc08629468", size = 5980, upload-time = "2015-12-23T04:09:24.074Z" }
+
+[[package]]
 name = "alembic"
 version = "1.18.4"
 source = { registry = "https://pypi.org/simple" }
@@ -384,6 +390,7 @@ name = "masjidkoi-backend"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "adhan" },
     { name = "alembic" },
     { name = "asyncpg" },
     { name = "fastapi" },
@@ -409,6 +416,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "adhan", specifier = ">=0.1.1" },
     { name = "alembic", specifier = ">=1.14.0" },
     { name = "asyncpg", specifier = ">=0.30.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
