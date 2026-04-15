@@ -226,6 +226,20 @@ class GoTrueClient:
         _raise_for_gotrue(resp, "TOTP verify")
         return resp.json()
 
+    async def update_user_password(self, access_token: str, password: str) -> None:
+        """
+        PUT /user — set or update password for the currently authenticated user.
+        Used by invited users to set their password on first login.
+        The access_token here is the invite token from the email link hash fragment.
+        """
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.put(
+                f"{self._base}/user",
+                json={"password": password},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+        _raise_for_gotrue(resp, "update user password")
+
 
 # ── Singleton for use in dependencies ─────────────────────────────────────────
 

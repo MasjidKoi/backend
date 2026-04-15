@@ -19,6 +19,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, Field
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -94,6 +95,29 @@ async def logout(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer),
 ) -> None:
     await gotrue.logout(credentials.credentials)
+
+
+# ── Set password (invite flow) ─────────────────────────────────────────────────
+
+class UpdatePasswordRequest(BaseModel):
+    password: str = Field(..., min_length=8, description="New password (min 8 chars)")
+
+
+@router.put(
+    "/user/password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Set password for an invited user",
+    description=(
+        "Called by the /invite/accept frontend page. "
+        "The Authorization header must carry the invite access_token from the email link hash. "
+        "Sets the user's password in GoTrue so they can log in normally."
+    ),
+)
+async def update_password(
+    body: UpdatePasswordRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(_bearer),
+) -> None:
+    await gotrue.update_user_password(credentials.credentials, body.password)
 
 
 # ── TOTP / 2FA ─────────────────────────────────────────────────────────────────
