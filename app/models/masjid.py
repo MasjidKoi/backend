@@ -99,6 +99,13 @@ class Masjid(Base):
         lazy="raise",
         cascade="all, delete-orphan",
     )
+    announcements: Mapped[list["Announcement"]] = relationship(  # type: ignore[name-defined]
+        "Announcement",
+        back_populates="masjid",
+        lazy="raise",
+        cascade="all, delete-orphan",
+        order_by="Announcement.created_at.desc()",
+    )
 
 
 class MasjidFacilities(Base):

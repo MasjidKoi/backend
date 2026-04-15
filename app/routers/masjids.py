@@ -31,10 +31,10 @@ router = APIRouter(prefix="/masjids", tags=["masjids"])
 )
 async def create_masjid(
     body: MasjidCreate,
-    _user: CurrentUser = Depends(require_platform_admin),
+    user: CurrentUser = Depends(require_platform_admin),
     service: MasjidService = Depends(get_masjid_service),
 ) -> MasjidResponse:
-    return await service.create(body)
+    return await service.create(body, user)
 
 
 @router.get(
@@ -46,9 +46,23 @@ async def get_nearby(
     lat: float = Query(..., ge=-90.0, le=90.0, description="Latitude"),
     lng: float = Query(..., ge=-180.0, le=180.0, description="Longitude"),
     radius_m: float = Query(5000.0, ge=100.0, le=50_000.0, description="Radius in metres"),
+    has_parking: bool | None = Query(default=None, description="Filter: has parking"),
+    has_sisters_section: bool | None = Query(default=None, description="Filter: has sisters section"),
+    has_wheelchair_access: bool | None = Query(default=None, description="Filter: wheelchair accessible"),
+    has_wudu_area: bool | None = Query(default=None, description="Filter: has wudu area"),
+    has_janazah: bool | None = Query(default=None, description="Filter: has Janazah facility"),
+    has_school: bool | None = Query(default=None, description="Filter: has Islamic school"),
     service: MasjidService = Depends(get_masjid_service),
 ) -> list[MasjidNearbyResult]:
-    return await service.get_nearby(lat=lat, lng=lng, radius_m=radius_m)
+    return await service.get_nearby(
+        lat=lat, lng=lng, radius_m=radius_m,
+        has_parking=has_parking,
+        has_sisters_section=has_sisters_section,
+        has_wheelchair_access=has_wheelchair_access,
+        has_wudu_area=has_wudu_area,
+        has_janazah=has_janazah,
+        has_school=has_school,
+    )
 
 
 @router.get(
@@ -121,10 +135,10 @@ async def update_masjid(
 )
 async def verify_masjid(
     masjid_id: uuid.UUID,
-    _user: CurrentUser = Depends(require_platform_admin),
+    user: CurrentUser = Depends(require_platform_admin),
     service: MasjidService = Depends(get_masjid_service),
 ) -> MasjidResponse:
-    return await service.verify(masjid_id)
+    return await service.verify(masjid_id, user)
 
 
 @router.post(
@@ -135,7 +149,7 @@ async def verify_masjid(
 async def suspend_masjid(
     masjid_id: uuid.UUID,
     body: SuspendRequest,
-    _user: CurrentUser = Depends(require_platform_admin),
+    user: CurrentUser = Depends(require_platform_admin),
     service: MasjidService = Depends(get_masjid_service),
 ) -> MasjidResponse:
-    return await service.suspend(masjid_id, body.reason)
+    return await service.suspend(masjid_id, body.reason, user)

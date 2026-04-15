@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.middleware import LoggingMiddleware
 from app.db.session import async_session_maker
-from app.routers import auth, masjids, prayer_times
+from app.routers import admin, announcements, auth, masjids, prayer_times
 
 setup_logging(settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
@@ -28,6 +28,8 @@ app.add_middleware(LoggingMiddleware)
 app.include_router(auth.router)
 app.include_router(masjids.router)
 app.include_router(prayer_times.router)
+app.include_router(announcements.router)
+app.include_router(admin.router)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────

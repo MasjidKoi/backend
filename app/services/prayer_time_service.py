@@ -18,6 +18,7 @@ from app.core.security import CurrentUser
 from app.models.enums import CalculationMethod, Madhab
 from app.models.masjid import Masjid
 from app.models.prayer_times import JumahSchedule, PrayerTimeRecord
+from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.masjid_repository import MasjidRepository
 from app.repositories.prayer_time_repository import JumahRepository, PrayerTimeRepository
 from app.schemas.prayer_times import (
@@ -47,6 +48,7 @@ class PrayerTimeService:
         self.repo = PrayerTimeRepository(db)
         self.jumah_repo = JumahRepository(db)
         self.masjid_repo = MasjidRepository(db)
+        self.audit = AuditLogRepository(db)
 
     # ── Internal helpers ───────────────────────────────────────────────────────
 
@@ -284,6 +286,10 @@ class PrayerTimeService:
             calculation_method=data.calculation_method or existing.calculation_method,
             madhab=data.madhab or existing.madhab,
         )
+        await self.audit.log(
+            admin_id=user.user_id, admin_email=user.email, admin_role=user.role,
+            action="set_prayer_times", target_entity="prayer_times", target_id=masjid_id,
+        )
         await self.repo.commit()
         return self._to_response(record)
 
@@ -338,6 +344,10 @@ class PrayerTimeService:
             isha_azan=times.isha,  # type: ignore[arg-type]
             calculation_method=method,
             madhab=madhab,
+        )
+        await self.audit.log(
+            admin_id=user.user_id, admin_email=user.email, admin_role=user.role,
+            action="recalc_prayer_times", target_entity="prayer_times", target_id=masjid_id,
         )
         await self.repo.commit()
         return self._to_response(record)

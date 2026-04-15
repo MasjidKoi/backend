@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import CurrentUser
 from app.models.enums import MasjidStatus
 from app.models.masjid import Masjid
+from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.masjid_repository import MasjidRepository
 from app.schemas.masjid import (
     ContactResponse,
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 class MasjidService:
     def __init__(self, db: AsyncSession) -> None:
         self.repo = MasjidRepository(db)
+        self.audit = AuditLogRepository(db)  # Same session — commits atomically
 
     # ── Internal helpers ───────────────────────────────────────────────────────
 
@@ -99,14 +101,35 @@ class MasjidService:
         return self._to_response(masjid)
 
     async def get_nearby(
-        self, lat: float, lng: float, radius_m: float
+        self,
+        lat: float,
+        lng: float,
+        radius_m: float,
+        *,
+        has_parking: bool | None = None,
+        has_sisters_section: bool | None = None,
+        has_wheelchair_access: bool | None = None,
+        has_wudu_area: bool | None = None,
+        has_janazah: bool | None = None,
+        has_school: bool | None = None,
     ) -> list[MasjidNearbyResult]:
-        pairs = await self.repo.get_nearby(lat=lat, lng=lng, radius_m=radius_m)
+        pairs = await self.repo.get_nearby(
+            lat=lat, lng=lng, radius_m=radius_m,
+            has_parking=has_parking,
+            has_sisters_section=has_sisters_section,
+            has_wheelchair_access=has_wheelchair_access,
+            has_wudu_area=has_wudu_area,
+            has_janazah=has_janazah,
+            has_school=has_school,
+        )
         results = []
         for masjid, dist in pairs:
             summary = MasjidSummary.model_validate(masjid, from_attributes=True)
             results.append(MasjidNearbyResult(**summary.model_dump(), distance_m=dist))
         return results
+
+    async def get_stats(self) -> dict:
+        return await self.repo.get_stats()
 
     async def search(self, q: str) -> list[MasjidSummary]:
         if len(q.strip()) < 2:
@@ -119,7 +142,7 @@ class MasjidService:
 
     # ── Admin writes ───────────────────────────────────────────────────────────
 
-    async def create(self, data: MasjidCreate) -> MasjidResponse:
+    async def create(self, data: MasjidCreate, user: CurrentUser) -> MasjidResponse:
         masjid = await self.repo.create(
             name=data.name,
             address=data.address,
@@ -128,6 +151,10 @@ class MasjidService:
             lng=data.longitude,
             timezone=data.timezone,
             description=data.description,
+        )
+        await self.audit.log(
+            admin_id=user.user_id, admin_email=user.email, admin_role=user.role,
+            action="create_masjid", target_entity="masjid", target_id=masjid.masjid_id,
         )
         await self.repo.commit()
         masjid = await self.repo.get_by_id_with_relations(masjid.masjid_id)
@@ -196,7 +223,7 @@ class MasjidService:
         masjid = await self.repo.get_by_id_with_relations(masjid_id)
         return self._to_response(masjid)
 
-    async def verify(self, masjid_id: uuid.UUID) -> MasjidResponse:
+    async def verify(self, masjid_id: uuid.UUID, user: CurrentUser) -> MasjidResponse:
         masjid = await self._get_or_404(masjid_id)
         if masjid.status != MasjidStatus.ACTIVE:
             raise HTTPException(
@@ -204,11 +231,17 @@ class MasjidService:
                 detail="Only active masjids can be verified",
             )
         await self.repo.set_verified(masjid, True)
+        await self.audit.log(
+            admin_id=user.user_id, admin_email=user.email, admin_role=user.role,
+            action="verify_masjid", target_entity="masjid", target_id=masjid_id,
+        )
         await self.repo.commit()
         masjid = await self.repo.get_by_id_with_relations(masjid_id)
         return self._to_response(masjid)
 
-    async def suspend(self, masjid_id: uuid.UUID, reason: str) -> MasjidResponse:
+    async def suspend(
+        self, masjid_id: uuid.UUID, reason: str, user: CurrentUser
+    ) -> MasjidResponse:
         masjid = await self._get_or_404(masjid_id)
         if masjid.status == MasjidStatus.REMOVED:
             raise HTTPException(
@@ -216,6 +249,10 @@ class MasjidService:
                 detail="Cannot suspend a removed masjid",
             )
         await self.repo.set_status(masjid, MasjidStatus.SUSPENDED, reason)
+        await self.audit.log(
+            admin_id=user.user_id, admin_email=user.email, admin_role=user.role,
+            action="suspend_masjid", target_entity="masjid", target_id=masjid_id,
+        )
         await self.repo.commit()
         masjid = await self.repo.get_by_id_with_relations(masjid_id)
         return self._to_response(masjid)

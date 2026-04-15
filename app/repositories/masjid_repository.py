@@ -36,14 +36,20 @@ class MasjidRepository(BaseRepository[Masjid]):
         lng: float,
         radius_m: float,
         limit: int = 50,
+        *,
+        has_parking: bool | None = None,
+        has_sisters_section: bool | None = None,
+        has_wheelchair_access: bool | None = None,
+        has_wudu_area: bool | None = None,
+        has_janazah: bool | None = None,
+        has_school: bool | None = None,
     ) -> list[tuple[Masjid, float]]:
         """
-        PostGIS ST_DWithin radius search.
+        PostGIS ST_DWithin radius search with optional facility filters.
         CRITICAL: status filter applied BEFORE spatial predicate so the GIST
         index on location is used.  Longitude is the x-axis (first arg).
+        JOIN with masjid_facilities is added only when facility filters are requested.
         """
-        # Use ST_GeographyFromText with validated floats — avoids .cast("geography")
-        # which passes a raw string to SQLAlchemy's type system and breaks cache key.
         point = func.ST_GeographyFromText(f"SRID=4326;POINT({lng} {lat})")
         distance_expr = ST_Distance(Masjid.location, point).label("distance_m")
 
@@ -54,8 +60,48 @@ class MasjidRepository(BaseRepository[Masjid]):
             .order_by(distance_expr)
             .limit(limit)
         )
+
+        # Apply facility filters — JOIN only when at least one filter is provided
+        facility_filters: dict[str, bool] = {
+            k: v for k, v in {
+                "has_parking": has_parking,
+                "has_sisters_section": has_sisters_section,
+                "has_wheelchair_access": has_wheelchair_access,
+                "has_wudu_area": has_wudu_area,
+                "has_janazah": has_janazah,
+                "has_school": has_school,
+            }.items() if v is not None
+        }
+        if facility_filters:
+            stmt = stmt.join(
+                MasjidFacilities,
+                Masjid.masjid_id == MasjidFacilities.masjid_id,
+            )
+            for col, val in facility_filters.items():
+                stmt = stmt.where(getattr(MasjidFacilities, col) == val)
+
         rows = (await self.db.execute(stmt)).all()
         return [(row[0], float(row[1])) for row in rows]
+
+    async def get_stats(self) -> dict:
+        """Aggregated counts for the admin dashboard."""
+        result = await self.db.execute(
+            select(
+                func.count().label("total"),
+                func.count().filter(Masjid.status == MasjidStatus.ACTIVE).label("active"),
+                func.count().filter(Masjid.status == MasjidStatus.PENDING).label("pending"),
+                func.count().filter(Masjid.status == MasjidStatus.SUSPENDED).label("suspended"),
+                func.count().filter(Masjid.verified == True).label("verified"),  # noqa: E712
+            ).select_from(Masjid)
+        )
+        row = result.one()
+        return {
+            "total_masjids": row.total,
+            "active_masjids": row.active,
+            "pending_masjids": row.pending,
+            "suspended_masjids": row.suspended,
+            "verified_masjids": row.verified,
+        }
 
     async def search(self, q: str, limit: int = 20) -> list[Masjid]:
         """Case-insensitive name/region autocomplete — active masjids only."""
