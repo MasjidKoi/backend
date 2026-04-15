@@ -148,6 +148,29 @@ async def verify_totp(
     )
 
 
+# ── List enrolled 2FA factors ─────────────────────────────────────────────────
+
+@router.get(
+    "/2fa/factors",
+    summary="List enrolled TOTP factors for the current user",
+    description="Returns the list of enrolled factors. Used by frontend to determine "
+                "whether to show /login/enroll (no factors) or /login/2fa (has factors).",
+)
+async def list_factors(
+    credentials: HTTPAuthorizationCredentials = Depends(_bearer),
+) -> dict:
+    import httpx
+    from app.core.config import settings
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+        resp = await client.get(
+            f"{settings.gotrue_base_url}/factors",
+            headers={"Authorization": f"Bearer {credentials.credentials}"},
+        )
+    if not resp.is_success:
+        return {"factors": []}
+    return resp.json()
+
+
 # ── Password reset ─────────────────────────────────────────────────────────────
 
 @router.post(
