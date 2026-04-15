@@ -14,7 +14,9 @@ from app.repositories.audit_log_repository import AuditLogRepository
 from app.schemas.admin import AdminStatsResponse, AuditLogEntry, AuditLogListResponse
 from app.services.masjid_service import MasjidService
 from app.db.session import get_db
+from app.core.config import settings
 from sqlalchemy.ext.asyncio import AsyncSession
+import httpx
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -67,3 +69,38 @@ async def get_audit_log(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get(
+    "/users",
+    summary="List all admin users from GoTrue (platform_admin)",
+)
+async def list_users(
+    _user: CurrentUser = Depends(require_platform_admin),
+) -> dict:
+    """Fetches the GoTrue admin users list using the service_role key."""
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+        resp = await client.get(
+            f"{settings.gotrue_base_url}/admin/users",
+            headers={
+                "Authorization": f"Bearer {settings.GOTRUE_SERVICE_ROLE_KEY}",
+                "apikey": settings.GOTRUE_SERVICE_ROLE_KEY,
+            },
+        )
+    if not resp.is_success:
+        return {"users": []}
+    data = resp.json()
+    # Return simplified user objects
+    users = [
+        {
+            "id": u["id"],
+            "email": u.get("email"),
+            "role": u.get("app_metadata", {}).get("role"),
+            "masjid_id": u.get("app_metadata", {}).get("masjid_id"),
+            "created_at": u.get("created_at"),
+            "confirmed_at": u.get("email_confirmed_at"),
+            "invited_at": u.get("invited_at"),
+        }
+        for u in data.get("users", [])
+    ]
+    return {"users": users, "total": len(users)}
