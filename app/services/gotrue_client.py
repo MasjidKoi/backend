@@ -107,10 +107,13 @@ class GoTrueClient:
         send_invite: bool = True,
     ) -> dict:
         """
-        POST /admin/users — create a new admin user in GoTrue.
+        Create a new admin user in GoTrue and send them an invite email.
 
-        Sets app_metadata so the role and resource scope appear in every JWT
-        issued to this user. app_metadata is immutable by the user themselves.
+        Two-step approach:
+        1. POST /invite — creates user AND sends invite email via SMTP.
+           (POST /admin/users with invite:true creates the user but doesn't reliably send email.)
+        2. PUT /admin/users/{id} — sets app_metadata (role, masjid_id, madrasha_id).
+           app_metadata is immutable by the user; only service_role can change it.
         """
         app_metadata: dict = {
             "role": str(role),
@@ -118,28 +121,85 @@ class GoTrueClient:
             "madrasha_id": str(madrasha_id) if madrasha_id else None,
         }
 
-        payload: dict = {
-            "email": email,
-            "app_metadata": app_metadata,
-            "email_confirm": not send_invite,
-        }
-
         if send_invite:
-            # GoTrue sends an invite email; user sets password on first login.
-            # redirect_to tells GoTrue where to send the user after they verify
-            # the token — must be in GOTRUE_URI_ALLOW_LIST.
-            payload["email_confirm"] = False
-            payload["invite"] = True
-            payload["redirect_to"] = "http://localhost:3000/invite/accept"
+            # Step 1: POST /invite → creates user + sends invite email
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                invite_resp = await client.post(
+                    f"{self._base}/invite",
+                    json={
+                        "email": email,
+                        "redirect_to": "http://localhost:3000/invite/accept",
+                    },
+                    headers=_admin_headers(),
+                )
 
+            if invite_resp.status_code == 422:
+                # User already exists — find them, update app_metadata, resend email
+                err = invite_resp.json()
+                if err.get("error_code") == "email_exists":
+                    user_data = await self._find_user_by_email_and_update(email, app_metadata)
+                    return user_data
+            _raise_for_gotrue(invite_resp, "send invite email")
+            user_data = invite_resp.json()
+            user_id = user_data.get("id")
+
+            # Step 2: PUT /admin/users/{id} → set role + scopes in app_metadata
+            if user_id:
+                async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                    await client.put(
+                        f"{self._base}/admin/users/{user_id}",
+                        json={"app_metadata": app_metadata},
+                        headers=_admin_headers(),
+                    )
+            return user_data
+        else:
+            # No invite email — just create the user with app_metadata
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                resp = await client.post(
+                    f"{self._base}/admin/users",
+                    json={"email": email, "app_metadata": app_metadata, "email_confirm": True},
+                    headers=_admin_headers(),
+                )
+            _raise_for_gotrue(resp, "create admin user")
+            return resp.json()
+
+    async def _find_user_by_email_and_update(self, email: str, app_metadata: dict) -> dict:
+        """
+        For existing users: find by email, update app_metadata, resend invite email.
+        Used when POST /invite returns email_exists (user was previously registered).
+        """
+        # List all users to find by email
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.post(
+            resp = await client.get(
                 f"{self._base}/admin/users",
-                json=payload,
                 headers=_admin_headers(),
             )
-        _raise_for_gotrue(resp, "create admin user")
-        return resp.json()
+        users = resp.json().get("users", [])
+        user = next((u for u in users if u.get("email") == email), None)
+        if not user:
+            raise ValueError(f"User {email} not found")
+
+        user_id = user["id"]
+
+        # Update app_metadata
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            await client.put(
+                f"{self._base}/admin/users/{user_id}",
+                json={"app_metadata": app_metadata},
+                headers=_admin_headers(),
+            )
+
+        # Send password reset / re-invite email
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            await client.post(
+                f"{self._base}/recover",
+                json={
+                    "email": email,
+                    "redirect_to": "http://localhost:3000/invite/accept",
+                },
+            )
+
+        return {**user, "app_metadata": app_metadata}
 
     async def update_user_app_metadata(
         self,
