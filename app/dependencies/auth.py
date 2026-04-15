@@ -51,21 +51,16 @@ def require_platform_admin(
     user: CurrentUser = Depends(get_current_user),
 ) -> CurrentUser:
     """
-    Platform admin with completed TOTP (aal2).
-
-    This is the highest privilege level — NGO Super Admin.
-    Both the role AND the second factor are checked.
+    Platform admin — aal1 or aal2 accepted (TOTP disabled for now).
     """
     if user.role != AdminRole.PLATFORM_ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Platform admin access required",
         )
-    if user.aal != AuthAssuranceLevel.AAL2:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Two-factor authentication required for this action",
-        )
+    # TODO: re-enable aal2 check when TOTP is stable
+    # if user.aal != AuthAssuranceLevel.AAL2:
+    #     raise HTTPException(status_code=403, detail="Two-factor authentication required")
     return user
 
 
