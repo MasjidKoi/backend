@@ -12,10 +12,10 @@ dependencies = [
     "uvicorn[standard]>=0.32.0",
     "pydantic[email]>=2.10.0",
     "pydantic-settings>=2.7.0",
-    "sqlalchemy>=2.0.36",
+    "sqlalchemy[asyncio]>=2.0.36",  # [asyncio] pulls in greenlet required for async engine
     "asyncpg>=0.30.0",
     "alembic>=1.14.0",
-    "geoalchemy2>=0.17.0",
+    "geoalchemy2[shapely]>=0.17.0",  # shapely needed for to_shape() WKB→lat/lng
     "python-multipart>=0.0.20",
     # Auth
     "PyJWT>=2.10.0",          # Verify GoTrue-issued HS256 JWTs locally
@@ -28,7 +28,8 @@ dev = [
     "ruff>=0.9.0",
     "pytest>=8.3.0",
     "pytest-asyncio>=0.25.0",
-    "python-dotenv>=1.0.0",   # used by gen_service_token.py
+    "python-dotenv>=1.0.0",
+    "psycopg2-binary>=2.9.0",  # sync driver for alembic migrations
 ]
 
 [build-system]
