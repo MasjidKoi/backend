@@ -1,0 +1,16 @@
+.git
+.venv
+venv
+env
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.env
+.pytest_cache
+.coverage
+htmlcov/
+Dockerfile
+docker-compose.yml
+.DS_Store

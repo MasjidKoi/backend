@@ -1,0 +1,66 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: masjidkoi_api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./app:/app/app:ro        # hot-reload in dev
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  postgres:
+    image: postgis/postgis:16-3.5-alpine
+    container_name: masjidkoi_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-masjidkoi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-masjidkoi}
+      POSTGRES_DB: ${POSTGRES_DB:-masjidkoi}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-masjidkoi} -d ${POSTGRES_DB:-masjidkoi}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  pgbouncer:
+    image: edoburu/pgbouncer:1.22.1
+    container_name: masjidkoi_pgbouncer
+    environment:
+      DB_USER: ${POSTGRES_USER:-masjidkoi}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-masjidkoi}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-masjidkoi}
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 20
+      # Required: asyncpg sends these params which pgbouncer doesn't understand
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits,options
+    ports:
+      - "6432:6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U ${POSTGRES_USER:-masjidkoi}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
