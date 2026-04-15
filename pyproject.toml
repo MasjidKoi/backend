@@ -10,13 +10,17 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
-    "pydantic>=2.10.0",
+    "pydantic[email]>=2.10.0",
     "pydantic-settings>=2.7.0",
     "sqlalchemy>=2.0.36",
     "asyncpg>=0.30.0",
     "alembic>=1.14.0",
     "geoalchemy2>=0.17.0",
     "python-multipart>=0.0.20",
+    # Auth
+    "PyJWT>=2.10.0",          # Verify GoTrue-issued HS256 JWTs locally
+    "httpx>=0.28.0",           # Async HTTP client for GoTrue proxy calls
+    "pyotp>=2.9.0",            # TOTP utilities (QR URI generation / verification)
 ]
 
 [dependency-groups]
@@ -24,7 +28,7 @@ dev = [
     "ruff>=0.9.0",
     "pytest>=8.3.0",
     "pytest-asyncio>=0.25.0",
-    "httpx>=0.28.0",
+    "python-dotenv>=1.0.0",   # used by gen_service_token.py
 ]
 
 [build-system]

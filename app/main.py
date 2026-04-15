@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.middleware import LoggingMiddleware
 from app.db.session import async_session_maker
+from app.routers import auth
 
 setup_logging(settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
@@ -23,6 +24,9 @@ app = FastAPI(
 
 app.add_middleware(LoggingMiddleware)
 
+# ── Routers ───────────────────────────────────────────────────────────────────
+app.include_router(auth.router)
+
 
 # ── Health ────────────────────────────────────────────────────────────────────
 
@@ -30,15 +34,8 @@ app.add_middleware(LoggingMiddleware)
     "/health",
     tags=["health"],
     summary="Service health check",
-    response_description="Returns service status and database connectivity",
 )
 async def health() -> JSONResponse:
-    """
-    Checks:
-    - API is reachable
-    - Database connection is alive (via PgBouncer → PostgreSQL)
-    - PostGIS extension is present
-    """
     db_status = "ok"
     postgis_version: str | None = None
     db_error: str | None = None
