@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
@@ -20,6 +21,19 @@ app = FastAPI(
     description="MasjidKoi Backend API — connecting worshippers with their nearest masjid.",
     docs_url="/docs",
     redoc_url="/redoc",
+)
+
+# CORS — allow frontend dev server and production origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.add_middleware(LoggingMiddleware)
