@@ -93,7 +93,6 @@ services:
       PORT: 9999
       API_EXTERNAL_URL: ${GOTRUE_EXTERNAL_URL:-http://localhost:9999}
       GOTRUE_SITE_URL: ${FRONTEND_URL:-http://localhost:3000}
-      GOTRUE_URI_ALLOW_LIST: ${GOTRUE_URI_ALLOW_LIST:-http://localhost:3000}
 
       # ── Signup policy ────────────────────────────────────────────────────
       # Disable public sign-up — all users are invited by platform admins
@@ -110,10 +109,14 @@ services:
       GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_FROM:-noreply@masjidkoi.com}
       GOTRUE_SMTP_SENDER_NAME: MasjidKoi
 
-      # ── Email redirect paths ──────────────────────────────────────────────
-      GOTRUE_MAILER_URLPATHS_INVITE: /invite/accept
-      GOTRUE_MAILER_URLPATHS_RECOVERY: /password/reset-confirm
-      GOTRUE_MAILER_URLPATHS_CONFIRMATION: /invite/accept
+      # ── Email redirect paths (GoTrue's own verification endpoints) ──────────
+      # URLPATHS are paths on the GoTrue SERVER — must remain /verify.
+      # The frontend redirect target is controlled by redirect_to in the invite API call.
+      GOTRUE_MAILER_URLPATHS_INVITE: /verify
+      GOTRUE_MAILER_URLPATHS_RECOVERY: /verify
+      GOTRUE_MAILER_URLPATHS_CONFIRMATION: /verify
+      # Allow GoTrue to redirect to our frontend invite/reset pages
+      GOTRUE_URI_ALLOW_LIST: ${GOTRUE_URI_ALLOW_LIST:-http://localhost:3000},http://localhost:3000/invite/accept,http://localhost:3000/password/reset-confirm
 
       # ── MFA / TOTP ────────────────────────────────────────────────────────
       GOTRUE_MFA_ENABLED: "true"

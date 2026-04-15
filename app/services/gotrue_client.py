@@ -125,9 +125,12 @@ class GoTrueClient:
         }
 
         if send_invite:
-            # GoTrue sends an invite email; user sets password on first login
+            # GoTrue sends an invite email; user sets password on first login.
+            # redirect_to tells GoTrue where to send the user after they verify
+            # the token — must be in GOTRUE_URI_ALLOW_LIST.
             payload["email_confirm"] = False
             payload["invite"] = True
+            payload["redirect_to"] = "http://localhost:3000/invite/accept"
 
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(
