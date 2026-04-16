@@ -136,5 +136,21 @@ services:
       start_period: 15s
     restart: unless-stopped
 
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8001}
+        NEXT_PUBLIC_APP_ENV: ${APP_ENV:-production}
+    container_name: masjidkoi_frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   postgres_data:
