@@ -7,12 +7,17 @@ GET /admin/audit-log   — paginated history of every admin write action
 
 from fastapi import APIRouter, Depends, Query
 
+import uuid
+
 from app.core.security import CurrentUser
 from app.dependencies.auth import require_platform_admin
 from app.dependencies.masjid import get_masjid_service
+from app.dependencies.announcement import get_announcement_service
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.schemas.admin import AdminStatsResponse, AuditLogEntry, AuditLogListResponse
+from app.schemas.announcement import AnnouncementPlatformListResponse
 from app.services.masjid_service import MasjidService
+from app.services.announcement_service import AnnouncementService
 from app.db.session import get_db
 from app.core.config import settings
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,9 +34,15 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 async def get_stats(
     _user: CurrentUser = Depends(require_platform_admin),
     service: MasjidService = Depends(get_masjid_service),
+    ann_service: AnnouncementService = Depends(get_announcement_service),
 ) -> AdminStatsResponse:
     stats = await service.get_stats()
-    return AdminStatsResponse(**stats)
+    total_ann, published_ann = await ann_service.repo.get_counts()
+    return AdminStatsResponse(
+        **stats,
+        total_announcements=total_ann,
+        published_announcements=published_ann,
+    )
 
 
 @router.get(
@@ -69,6 +80,21 @@ async def get_audit_log(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get(
+    "/announcements",
+    response_model=AnnouncementPlatformListResponse,
+    summary="List all announcements across all masjids (platform_admin)",
+)
+async def list_all_announcements(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    masjid_id: uuid.UUID | None = Query(default=None),
+    _user: CurrentUser = Depends(require_platform_admin),
+    service: AnnouncementService = Depends(get_announcement_service),
+) -> AnnouncementPlatformListResponse:
+    return await service.list_platform(page, page_size, masjid_id)
 
 
 @router.get(

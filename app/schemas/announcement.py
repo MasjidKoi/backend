@@ -32,3 +32,14 @@ class AnnouncementListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class AnnouncementWithMasjidResponse(AnnouncementResponse):
+    masjid_name: str
+
+
+class AnnouncementPlatformListResponse(BaseModel):
+    items: list[AnnouncementWithMasjidResponse]
+    total: int
+    page: int
+    page_size: int

@@ -9,8 +9,10 @@ from app.repositories.masjid_repository import MasjidRepository
 from app.schemas.announcement import (
     AnnouncementCreate,
     AnnouncementListResponse,
+    AnnouncementPlatformListResponse,
     AnnouncementResponse,
     AnnouncementUpdate,
+    AnnouncementWithMasjidResponse,
 )
 
 
@@ -83,6 +85,45 @@ class AnnouncementService:
                 detail="Announcement not found",
             )
         return self._to_response(ann)
+
+    # ── Admin reads ────────────────────────────────────────────────────────────
+
+    async def list_admin(
+        self, masjid_id: uuid.UUID, page: int, page_size: int, user: CurrentUser
+    ) -> AnnouncementListResponse:
+        """Admin listing — includes drafts. Scoped to own masjid."""
+        self._check_scope(user, masjid_id)
+        await self._get_masjid_or_404(masjid_id)
+        rows, total = await self.repo.get_all_by_masjid(
+            masjid_id, offset=(page - 1) * page_size, limit=page_size
+        )
+        return AnnouncementListResponse(
+            items=[self._to_response(a) for a in rows],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    async def list_platform(
+        self,
+        page: int,
+        page_size: int,
+        masjid_id: uuid.UUID | None = None,
+    ) -> AnnouncementPlatformListResponse:
+        """Platform admin — all announcements across all masjids with masjid name."""
+        rows, total = await self.repo.get_all_platform(
+            offset=(page - 1) * page_size, limit=page_size, masjid_id=masjid_id
+        )
+        items = [
+            AnnouncementWithMasjidResponse(
+                **self._to_response(ann).model_dump(),
+                masjid_name=name,
+            )
+            for ann, name in rows
+        ]
+        return AnnouncementPlatformListResponse(
+            items=items, total=total, page=page, page_size=page_size
+        )
 
     # ── Admin writes ───────────────────────────────────────────────────────────
 

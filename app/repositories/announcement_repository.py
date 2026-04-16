@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 
 from app.models.announcement import Announcement
+from app.models.masjid import Masjid
 from app.repositories.base import BaseRepository
 
 
@@ -30,6 +31,59 @@ class AnnouncementRepository(BaseRepository[Announcement]):
             base.order_by(Announcement.published_at.desc()).offset(offset).limit(limit)
         )).scalars().all())
         return rows, count
+
+    async def get_counts(self) -> tuple[int, int]:
+        """Returns (total, published) announcement counts across all masjids."""
+        result = await self.db.execute(
+            select(
+                func.count().label("total"),
+                func.count().filter(Announcement.is_published == True).label("published"),  # noqa: E712
+            ).select_from(Announcement)
+        )
+        row = result.one()
+        return row.total, row.published
+
+    async def get_all_by_masjid(
+        self,
+        masjid_id: uuid.UUID,
+        offset: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[Announcement], int]:
+        """Admin listing — all announcements (drafts + published) for one masjid."""
+        base = select(Announcement).where(Announcement.masjid_id == masjid_id)
+        count = (await self.db.execute(
+            select(func.count()).select_from(base.subquery())
+        )).scalar_one()
+        rows = list((await self.db.execute(
+            base.order_by(Announcement.created_at.desc()).offset(offset).limit(limit)
+        )).scalars().all())
+        return rows, count
+
+    async def get_all_platform(
+        self,
+        offset: int = 0,
+        limit: int = 20,
+        masjid_id: uuid.UUID | None = None,
+    ) -> tuple[list[tuple[Announcement, str]], int]:
+        """Platform admin — cross-masjid listing with masjid name via JOIN."""
+        count_stmt = (
+            select(Announcement)
+            .join(Masjid, Announcement.masjid_id == Masjid.masjid_id)
+        )
+        data_stmt = (
+            select(Announcement, Masjid.name.label("masjid_name"))
+            .join(Masjid, Announcement.masjid_id == Masjid.masjid_id)
+        )
+        if masjid_id is not None:
+            count_stmt = count_stmt.where(Announcement.masjid_id == masjid_id)
+            data_stmt = data_stmt.where(Announcement.masjid_id == masjid_id)
+        count = (await self.db.execute(
+            select(func.count()).select_from(count_stmt.subquery())
+        )).scalar_one()
+        rows = list((await self.db.execute(
+            data_stmt.order_by(Announcement.created_at.desc()).offset(offset).limit(limit)
+        )).all())
+        return [(r.Announcement, r.masjid_name) for r in rows], count
 
     async def get_by_id_and_masjid(
         self, announcement_id: uuid.UUID, masjid_id: uuid.UUID

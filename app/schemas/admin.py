@@ -10,6 +10,8 @@ class AdminStatsResponse(BaseModel):
     pending_masjids: int
     suspended_masjids: int
     verified_masjids: int
+    total_announcements: int
+    published_announcements: int
 
 
 class AuditLogEntry(BaseModel):

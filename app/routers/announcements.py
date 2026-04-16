@@ -19,6 +19,7 @@ from app.schemas.announcement import (
     AnnouncementResponse,
     AnnouncementUpdate,
 )
+
 from app.services.announcement_service import AnnouncementService
 
 router = APIRouter(prefix="/masjids", tags=["announcements"])
@@ -37,6 +38,21 @@ async def create_announcement(
     service: AnnouncementService = Depends(get_announcement_service),
 ) -> AnnouncementResponse:
     return await service.create(masjid_id, body, user)
+
+
+@router.get(
+    "/{masjid_id}/announcements/admin",
+    response_model=AnnouncementListResponse,
+    summary="List ALL announcements including drafts (masjid_admin)",
+)
+async def list_announcements_admin(
+    masjid_id: uuid.UUID,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    user: CurrentUser = Depends(require_masjid_admin),
+    service: AnnouncementService = Depends(get_announcement_service),
+) -> AnnouncementListResponse:
+    return await service.list_admin(masjid_id, page, page_size, user)
 
 
 @router.get(
