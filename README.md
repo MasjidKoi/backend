@@ -38,8 +38,8 @@ API available at `http://localhost:8001` — health check: `GET /health`
 ### 3. Apply migrations
 
 ```bash
-DATABASE_URL=postgresql://masjidkoi:masjidkoi@localhost:5432/masjidkoi \
-  uv run alembic upgrade head
+# Run inside the api container (postgres is not exposed to the host)
+docker compose exec api uv run alembic upgrade head
 ```
 
 ### 4. Seed platform admin
