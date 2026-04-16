@@ -80,7 +80,7 @@ async def search_masjids(
 @router.get(
     "",
     response_model=MasjidAdminListResponse,
-    summary="List all masjids with filters (platform_admin + aal2)",
+    summary="List masjids with filters (public)",
 )
 async def list_masjids(
     status_filter: str | None = Query(default=None, alias="status"),
@@ -89,7 +89,6 @@ async def list_masjids(
     q: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
-    _user: CurrentUser = Depends(require_platform_admin),
     service: MasjidService = Depends(get_masjid_service),
 ) -> MasjidAdminListResponse:
     return await service.list_for_admin(
