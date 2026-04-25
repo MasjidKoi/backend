@@ -117,6 +117,18 @@ class AnnouncementRepository(BaseRepository[Announcement]):
         )
         return result.scalar_one_or_none()
 
+    async def get_overdue_scheduled(self) -> list[Announcement]:
+        """Return unpublished announcements whose scheduled_at has passed."""
+        now = datetime.now(timezone.utc)
+        result = await self.db.execute(
+            select(Announcement).where(
+                Announcement.is_published == False,  # noqa: E712
+                Announcement.scheduled_at.is_not(None),
+                Announcement.scheduled_at <= now,
+            )
+        )
+        return list(result.scalars().all())
+
     async def create(
         self,
         *,
@@ -126,6 +138,7 @@ class AnnouncementRepository(BaseRepository[Announcement]):
         posted_by_id: uuid.UUID,
         posted_by_email: str | None,
         publish: bool = False,
+        scheduled_at: datetime | None = None,
     ) -> Announcement:
         now = datetime.now(timezone.utc) if publish else None
         ann = Announcement(
@@ -136,6 +149,7 @@ class AnnouncementRepository(BaseRepository[Announcement]):
             posted_by_email=posted_by_email,
             is_published=publish,
             published_at=now,
+            scheduled_at=None if publish else scheduled_at,
         )
         self.db.add(ann)
         await self.db.flush()

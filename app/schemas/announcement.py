@@ -8,11 +8,13 @@ class AnnouncementCreate(BaseModel):
     title: str = Field(..., max_length=200)
     body: str = Field(..., min_length=1)
     publish: bool = False  # True = publish immediately; False = save as draft
+    scheduled_at: datetime | None = None  # auto-publish at this UTC time (draft only)
 
 
 class AnnouncementUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     body: str | None = None
+    scheduled_at: datetime | None = None  # pass None to clear the scheduled time
 
 
 class AnnouncementResponse(BaseModel):
@@ -22,6 +24,7 @@ class AnnouncementResponse(BaseModel):
     body: str
     is_published: bool
     published_at: datetime | None
+    scheduled_at: datetime | None
     posted_by_email: str | None
     created_at: datetime
     updated_at: datetime

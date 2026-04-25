@@ -38,6 +38,7 @@ class AnnouncementService:
             body=ann.body,
             is_published=ann.is_published,
             published_at=ann.published_at,
+            scheduled_at=ann.scheduled_at,
             posted_by_email=ann.posted_by_email,
             created_at=ann.created_at,
             updated_at=ann.updated_at,
@@ -142,6 +143,7 @@ class AnnouncementService:
             posted_by_id=user.user_id,
             posted_by_email=user.email,
             publish=data.publish,
+            scheduled_at=data.scheduled_at,
         )
         await self.repo.commit()
         return self._to_response(ann)

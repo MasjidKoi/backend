@@ -32,6 +32,10 @@ class Announcement(Base):
     posted_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     posted_by_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    scheduled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

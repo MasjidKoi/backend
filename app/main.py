@@ -11,6 +11,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.middleware import LoggingMiddleware
+from app.core.scheduler import publish_scheduled_announcements, scheduler
 from app.db.session import async_session_maker
 from app.routers import (
     admin,
@@ -34,9 +35,22 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     app.state.redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
     logger.info("Redis connection pool created")
+
+    scheduler.add_job(
+        publish_scheduled_announcements,
+        trigger="interval",
+        minutes=1,
+        id="publish_scheduled_announcements",
+        replace_existing=True,
+    )
+    scheduler.start()
+    logger.info("APScheduler started")
+
     yield
+
+    scheduler.shutdown(wait=False)
     await app.state.redis.aclose()
-    logger.info("Redis connection pool closed")
+    logger.info("Scheduler and Redis stopped")
 
 
 app = FastAPI(

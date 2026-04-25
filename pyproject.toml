@@ -27,6 +27,7 @@ dependencies = [
     "reportlab>=4.2.0",        # PDF generation for export endpoint (CPU-bound → executor)
     "aiosmtplib>=3.0.0",       # Async SMTP for reporter email notifications
     "redis[asyncio]>=5.0.0",   # Redis client for rate limiting and caching
+    "apscheduler>=3.10.4,<4.0.0",  # Background cron jobs (scheduled announcement publish)
 ]
 
 [dependency-groups]
