@@ -20,12 +20,12 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import CurrentUser
 from app.db.session import get_db
 from app.dependencies.auth import get_current_user, require_platform_admin
+from app.dependencies.co_admin_invite import get_co_admin_invite_service
 from app.models.enums import AdminRole
 from app.schemas.auth import (
     AdminInviteRequest,
@@ -33,10 +33,12 @@ from app.schemas.auth import (
     LoginRequest,
     PasswordResetRequest,
     RefreshRequest,
+    TokenResponse,
     TOTPEnrollResponse,
     TOTPVerifyRequest,
-    TokenResponse,
 )
+from app.schemas.co_admin_invite import CoAdminAcceptRequest, CoAdminDeclineRequest
+from app.services.co_admin_invite_service import CoAdminInviteService
 from app.services.gotrue_client import gotrue
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,7 @@ _bearer = HTTPBearer(auto_error=True)
 
 
 # ── Login ──────────────────────────────────────────────────────────────────────
+
 
 @router.post(
     "/login",
@@ -69,6 +72,7 @@ async def login(body: LoginRequest) -> TokenResponse:
 
 # ── Refresh ────────────────────────────────────────────────────────────────────
 
+
 @router.post(
     "/refresh",
     response_model=TokenResponse,
@@ -86,6 +90,7 @@ async def refresh(body: RefreshRequest) -> TokenResponse:
 
 # ── Logout ─────────────────────────────────────────────────────────────────────
 
+
 @router.post(
     "/logout",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -98,6 +103,7 @@ async def logout(
 
 
 # ── Set password (invite flow) ─────────────────────────────────────────────────
+
 
 class UpdatePasswordRequest(BaseModel):
     password: str = Field(..., min_length=8, description="New password (min 8 chars)")
@@ -121,6 +127,7 @@ async def update_password(
 
 
 # ── TOTP / 2FA ─────────────────────────────────────────────────────────────────
+
 
 @router.post(
     "/2fa/enroll",
@@ -164,9 +171,7 @@ async def verify_totp(
     body: TOTPVerifyRequest,
     credentials: HTTPAuthorizationCredentials = Depends(_bearer),
 ) -> TokenResponse:
-    data = await gotrue.verify_totp(
-        credentials.credentials, body.factor_id, body.code
-    )
+    data = await gotrue.verify_totp(credentials.credentials, body.factor_id, body.code)
     return TokenResponse(
         access_token=data["access_token"],
         token_type=data.get("token_type", "bearer"),
@@ -177,17 +182,19 @@ async def verify_totp(
 
 # ── List enrolled 2FA factors ─────────────────────────────────────────────────
 
+
 @router.get(
     "/2fa/factors",
     summary="List enrolled TOTP factors for the current user",
     description="Returns verified TOTP factors from DB. Used by frontend to determine "
-                "whether to show /login/enroll (empty) or /login/2fa (has factors).",
+    "whether to show /login/enroll (empty) or /login/2fa (has factors).",
 )
 async def list_factors(
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     from sqlalchemy import text as sql_text
+
     result = await db.execute(
         sql_text(
             "SELECT id, status, friendly_name "
@@ -200,13 +207,18 @@ async def list_factors(
     rows = result.mappings().all()
     return {
         "factors": [
-            {"id": str(r["id"]), "status": r["status"], "friendly_name": r["friendly_name"]}
+            {
+                "id": str(r["id"]),
+                "status": r["status"],
+                "friendly_name": r["friendly_name"],
+            }
             for r in rows
         ]
     }
 
 
 # ── Password reset ─────────────────────────────────────────────────────────────
+
 
 @router.post(
     "/password/reset",
@@ -218,6 +230,7 @@ async def request_password_reset(body: PasswordResetRequest) -> None:
 
 
 # ── Admin: invite new admin user ───────────────────────────────────────────────
+
 
 @router.post(
     "/admin/invite",
@@ -246,3 +259,40 @@ async def invite_admin(
         email=data["email"],
         role=body.role,
     )
+
+
+# ── Co-admin invite accept / decline ──────────────────────────────────────────
+
+
+@router.post(
+    "/co-admin/accept",
+    response_model=TokenResponse,
+    summary="Accept a co-admin invite and set password",
+    description=(
+        "Called by the /invite/accept frontend page after the invitee clicks the email link. "
+        "Validates the GoTrue invite token, sets the password, marks the invite as Accepted, "
+        "and returns a session token so the co-admin is logged in immediately."
+    ),
+)
+async def accept_co_admin_invite(
+    body: CoAdminAcceptRequest,
+    service: CoAdminInviteService = Depends(get_co_admin_invite_service),
+) -> TokenResponse:
+    return await service.accept(body)
+
+
+@router.post(
+    "/co-admin/decline",
+    status_code=200,
+    summary="Decline a co-admin invite",
+    description=(
+        "Called by the /invite/accept frontend page when the invitee clicks Decline. "
+        "Deletes the GoTrue user and marks the invite as Declined."
+    ),
+)
+async def decline_co_admin_invite(
+    body: CoAdminDeclineRequest,
+    service: CoAdminInviteService = Depends(get_co_admin_invite_service),
+) -> dict:
+    await service.decline(body)
+    return {"detail": "Invite declined"}

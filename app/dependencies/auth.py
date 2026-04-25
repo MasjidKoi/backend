@@ -35,6 +35,7 @@ _bearer = HTTPBearer(auto_error=True)
 
 # ── Base dependency ────────────────────────────────────────────────────────────
 
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer),
 ) -> CurrentUser:
@@ -46,6 +47,7 @@ def get_current_user(
 
 
 # ── Role guards ───────────────────────────────────────────────────────────────
+
 
 def require_platform_admin(
     user: CurrentUser = Depends(get_current_user),

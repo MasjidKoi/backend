@@ -56,9 +56,7 @@ class GoTrueClient:
 
     # ── Token endpoints (proxied for clients) ─────────────────────────────────
 
-    async def login_with_password(
-        self, email: str, password: str
-    ) -> dict:
+    async def login_with_password(self, email: str, password: str) -> dict:
         """POST /token?grant_type=password"""
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(
@@ -137,7 +135,9 @@ class GoTrueClient:
                 # User already exists — find them, update app_metadata, resend email
                 err = invite_resp.json()
                 if err.get("error_code") == "email_exists":
-                    user_data = await self._find_user_by_email_and_update(email, app_metadata)
+                    user_data = await self._find_user_by_email_and_update(
+                        email, app_metadata
+                    )
                     return user_data
             _raise_for_gotrue(invite_resp, "send invite email")
             user_data = invite_resp.json()
@@ -157,13 +157,19 @@ class GoTrueClient:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
                 resp = await client.post(
                     f"{self._base}/admin/users",
-                    json={"email": email, "app_metadata": app_metadata, "email_confirm": True},
+                    json={
+                        "email": email,
+                        "app_metadata": app_metadata,
+                        "email_confirm": True,
+                    },
                     headers=_admin_headers(),
                 )
             _raise_for_gotrue(resp, "create admin user")
             return resp.json()
 
-    async def _find_user_by_email_and_update(self, email: str, app_metadata: dict) -> dict:
+    async def _find_user_by_email_and_update(
+        self, email: str, app_metadata: dict
+    ) -> dict:
         """
         For existing users: find by email, update app_metadata, resend invite email.
         Used when POST /invite returns email_exists (user was previously registered).
@@ -249,7 +255,10 @@ class GoTrueClient:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(
                 f"{self._base}/factors",
-                json={"factor_type": "totp", "friendly_name": "MasjidKoi Authenticator"},
+                json={
+                    "factor_type": "totp",
+                    "friendly_name": "MasjidKoi Authenticator",
+                },
                 headers={"Authorization": f"Bearer {access_token}"},
             )
         _raise_for_gotrue(resp, "TOTP enroll")
@@ -269,9 +278,7 @@ class GoTrueClient:
         _raise_for_gotrue(resp, "TOTP challenge")
         return resp.json()["id"]
 
-    async def verify_totp(
-        self, access_token: str, factor_id: str, code: str
-    ) -> dict:
+    async def verify_totp(self, access_token: str, factor_id: str, code: str) -> dict:
         """
         Full TOTP verification flow:
           1. POST /factors/{id}/challenge  → get challenge_id
@@ -302,6 +309,22 @@ class GoTrueClient:
                 headers={"Authorization": f"Bearer {access_token}"},
             )
         _raise_for_gotrue(resp, "update user password")
+
+    async def resend_invite_email(self, email: str) -> None:
+        """
+        Resend an invite by sending a recovery email that redirects to /invite/accept.
+        GoTrue has no dedicated resend-invite endpoint; POST /recover with redirect_to
+        produces a functionally identical magic-link email.
+        """
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(
+                f"{self._base}/recover",
+                json={
+                    "email": email,
+                    "redirect_to": "http://localhost:3000/invite/accept",
+                },
+            )
+        _raise_for_gotrue(resp, "resend invite email")
 
 
 # ── Singleton for use in dependencies ─────────────────────────────────────────

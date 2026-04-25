@@ -7,6 +7,7 @@ from app.models.enums import AdminRole
 
 # ── Request schemas ───────────────────────────────────────────────────────────
 
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
@@ -18,13 +19,15 @@ class RefreshRequest(BaseModel):
 
 class TOTPEnrollResponse(BaseModel):
     """Returned when platform admin initiates TOTP enrollment."""
+
     factor_id: str
-    totp_uri: str       # otpauth:// URI — render as QR code in the frontend
-    qr_code: str        # base64-encoded PNG for convenience
+    totp_uri: str  # otpauth:// URI — render as QR code in the frontend
+    qr_code: str  # base64-encoded PNG for convenience
 
 
 class TOTPVerifyRequest(BaseModel):
     """Verify TOTP code to upgrade session from aal1 → aal2."""
+
     factor_id: str
     code: str
 
@@ -45,6 +48,7 @@ class AdminInviteRequest(BaseModel):
     Platform admin invites a new masjid or madrasha admin.
     GoTrue sends them an invite email; on first login they set their password.
     """
+
     email: EmailStr
     role: AdminRole
 
@@ -56,9 +60,7 @@ class AdminInviteRequest(BaseModel):
 
     @field_validator("masjid_id", mode="after")
     @classmethod
-    def masjid_id_required_for_masjid_admin(
-        cls, v: UUID | None, info
-    ) -> UUID | None:
+    def masjid_id_required_for_masjid_admin(cls, v: UUID | None, info) -> UUID | None:
         if info.data.get("role") == AdminRole.MASJID_ADMIN and v is None:
             raise ValueError("masjid_id is required for masjid_admin role")
         return v
@@ -74,6 +76,7 @@ class AdminInviteRequest(BaseModel):
 
 
 # ── Response schemas ──────────────────────────────────────────────────────────
+
 
 class TokenResponse(BaseModel):
     access_token: str

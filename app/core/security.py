@@ -71,6 +71,28 @@ class CurrentUser:
         return self.aal == AuthAssuranceLevel.AAL2
 
 
+def decode_gotrue_sub(token: str) -> tuple[UUID, str | None]:
+    """
+    Decode a GoTrue JWT and return (user_id, email) without requiring the role claim.
+    Used for co-admin accept/decline — the invite token is minted before Step 2 sets
+    app_metadata.role, so decode_token() would reject it with 403 "missing role claim".
+    """
+    try:
+        payload = jwt.decode(
+            token,
+            settings.GOTRUE_JWT_SECRET,
+            algorithms=[_ALGORITHM],
+            audience=settings.GOTRUE_JWT_AUD,
+        )
+    except jwt.InvalidTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired invite token",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+    return UUID(payload["sub"]), payload.get("email")
+
+
 def decode_token(token: str) -> CurrentUser:
     """
     Decode and validate a GoTrue-issued JWT.

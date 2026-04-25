@@ -18,6 +18,7 @@ class AdminRole(StrEnum):
     PLATFORM_ADMIN = "platform_admin"
     MASJID_ADMIN = "masjid_admin"
     MADRASHA_ADMIN = "madrasha_admin"
+    APP_USER = "app_user"
 
 
 class AuthAssuranceLevel(StrEnum):
