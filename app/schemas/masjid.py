@@ -1,10 +1,11 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 # ── Nested schemas ─────────────────────────────────────────────────────────────
+
 
 class FacilitiesResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -19,6 +20,9 @@ class FacilitiesResponse(BaseModel):
     has_school: bool
     imam_name: str | None
     imam_qualifications: str | None
+    imam_languages: str | None
+    capacity_male: int | None
+    capacity_female: int | None
     updated_at: datetime
 
 
@@ -34,6 +38,9 @@ class FacilitiesUpdate(BaseModel):
     has_school: bool | None = None
     imam_name: str | None = None
     imam_qualifications: str | None = None
+    imam_languages: str | None = None
+    capacity_male: int | None = Field(default=None, ge=0, le=100_000)
+    capacity_female: int | None = Field(default=None, ge=0, le=100_000)
 
 
 class ContactResponse(BaseModel):
@@ -63,6 +70,7 @@ class PhotoResponse(BaseModel):
 
 # ── Create ─────────────────────────────────────────────────────────────────────
 
+
 class MasjidCreate(BaseModel):
     name: str = Field(..., max_length=200)
     address: str
@@ -75,8 +83,10 @@ class MasjidCreate(BaseModel):
 
 # ── Update ─────────────────────────────────────────────────────────────────────
 
+
 class MasjidUpdate(BaseModel):
     """All fields optional — true PATCH semantics."""
+
     name: str | None = Field(default=None, max_length=200)
     address: str | None = None
     admin_region: str | None = Field(default=None, max_length=100)
@@ -92,6 +102,7 @@ class MasjidUpdate(BaseModel):
 
 
 # ── List / summary ─────────────────────────────────────────────────────────────
+
 
 class MasjidSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -119,12 +130,14 @@ class MasjidAdminListResponse(BaseModel):
 
 # ── Full response ──────────────────────────────────────────────────────────────
 
+
 class MasjidResponse(BaseModel):
     """
     Full masjid profile with coordinates, facilities, contact, and photos.
     Built explicitly in service via _orm_to_response() — never from_attributes
     directly because location is a WKBElement that needs to_shape() conversion.
     """
+
     masjid_id: uuid.UUID
     name: str
     address: str
@@ -144,7 +157,45 @@ class MasjidResponse(BaseModel):
     photos: list[PhotoResponse] = []
 
 
+# ── Photo actions ──────────────────────────────────────────────────────────────
+
+
+class PhotoReorderRequest(BaseModel):
+    ordered_photo_ids: list[uuid.UUID]
+
+
 # ── Actions ────────────────────────────────────────────────────────────────────
+
 
 class SuspendRequest(BaseModel):
     reason: str = Field(..., min_length=10, max_length=500)
+
+
+# ── Merge ──────────────────────────────────────────────────────────────────────
+
+
+class MasjidMergeRequest(BaseModel):
+    source_masjid_id: uuid.UUID
+    target_masjid_id: uuid.UUID
+    copy_fields: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_different_ids(self) -> "MasjidMergeRequest":
+        if self.source_masjid_id == self.target_masjid_id:
+            raise ValueError("source_masjid_id and target_masjid_id must be different")
+        return self
+
+
+# ── Bulk import ────────────────────────────────────────────────────────────────
+
+
+class BulkImportRowError(BaseModel):
+    row: int
+    reason: str
+
+
+class BulkImportResponse(BaseModel):
+    created: int
+    failed: int
+    errors: list[BulkImportRowError]
+    import_file_key: str

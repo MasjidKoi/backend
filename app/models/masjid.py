@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    SmallInteger,
     String,
     Text,
     func,
@@ -106,6 +107,47 @@ class Masjid(Base):
         cascade="all, delete-orphan",
         order_by="Announcement.created_at.desc()",
     )
+    # Reports survive masjid deletion (FK uses SET NULL) — no delete-orphan
+    reports: Mapped[list["MasjidReport"]] = relationship(  # type: ignore[name-defined]
+        "MasjidReport",
+        back_populates="masjid",
+        lazy="raise",
+        cascade="save-update, merge",
+    )
+    followers: Mapped[list["UserMasjidFollow"]] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "UserMasjidFollow",
+        back_populates="masjid",
+        lazy="raise",
+        cascade="all, delete-orphan",
+    )
+    events: Mapped[list["MasjidEvent"]] = relationship(  # type: ignore[name-defined]
+        "MasjidEvent",
+        back_populates="masjid",
+        lazy="raise",
+        cascade="all, delete-orphan",
+        order_by="MasjidEvent.event_date.asc(), MasjidEvent.event_time.asc()",
+    )
+    reviews: Mapped[list["MasjidReview"]] = relationship(  # type: ignore[name-defined]
+        "MasjidReview",
+        back_populates="masjid",
+        lazy="raise",
+        cascade="all, delete-orphan",
+        order_by="MasjidReview.created_at.desc()",
+    )
+    campaigns: Mapped[list["MasjidCampaign"]] = relationship(  # type: ignore[name-defined]
+        "MasjidCampaign",
+        back_populates="masjid",
+        lazy="raise",
+        cascade="all, delete-orphan",
+        order_by="MasjidCampaign.created_at.desc()",
+    )
+    co_admin_invites: Mapped[list["MasjidCoAdminInvite"]] = relationship(  # type: ignore[name-defined]
+        "MasjidCoAdminInvite",
+        back_populates="masjid",
+        lazy="raise",
+        cascade="all, delete-orphan",
+        order_by="MasjidCoAdminInvite.created_at.desc()",
+    )
 
 
 class MasjidFacilities(Base):
@@ -134,6 +176,9 @@ class MasjidFacilities(Base):
     has_school: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     imam_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     imam_qualifications: Mapped[str | None] = mapped_column(Text, nullable=True)
+    imam_languages: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    capacity_male: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    capacity_female: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
