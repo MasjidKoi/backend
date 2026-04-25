@@ -22,6 +22,11 @@ dependencies = [
     "httpx>=0.28.0",           # Async HTTP client for GoTrue proxy calls
     "pyotp>=2.9.0",            # TOTP utilities (QR URI generation / verification)
     "adhan>=0.1.1",            # Astronomical prayer time calculation (Python port of Adhan-js)
+    "aioboto3>=13.0.0",        # Async boto3 wrapper for S3/MinIO
+    "openpyxl>=3.1.0",         # Parse .xlsx files (run in executor — blocking I/O)
+    "reportlab>=4.2.0",        # PDF generation for export endpoint (CPU-bound → executor)
+    "aiosmtplib>=3.0.0",       # Async SMTP for reporter email notifications
+    "redis[asyncio]>=5.0.0",   # Redis client for rate limiting and caching
 ]
 
 [dependency-groups]

@@ -55,6 +55,7 @@ async_session_maker = async_sessionmaker(
 
 # ── Dependency ────────────────────────────────────────────────────────────────
 
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     FastAPI dependency that provides a short-lived async database session.

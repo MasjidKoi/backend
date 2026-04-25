@@ -8,6 +8,7 @@ Run:
     DATABASE_URL=postgresql+asyncpg://masjidkoi:masjidkoi@localhost:5433/masjidkoi \
       uv run alembic upgrade head
 """
+
 from logging.config import fileConfig
 
 from alembic import context
@@ -25,7 +26,9 @@ if config.config_file_name is not None:
 # Swap asyncpg → psycopg2 so Alembic runs on a sync connection
 _async_url = make_url(settings.DATABASE_URL)
 _sync_url = _async_url.set(drivername="postgresql+psycopg2")
-config.set_main_option("sqlalchemy.url", _sync_url.render_as_string(hide_password=False))
+config.set_main_option(
+    "sqlalchemy.url", _sync_url.render_as_string(hide_password=False)
+)
 
 target_metadata = Base.metadata
 

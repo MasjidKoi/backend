@@ -5,10 +5,29 @@ from datetime import datetime, timezone
 
 
 _STDLIB_ATTRS = logging.LogRecord.__dict__.keys() | {
-    "message", "asctime", "args", "exc_info", "exc_text", "stack_info",
-    "msg", "name", "levelname", "levelno", "pathname", "filename",
-    "module", "lineno", "funcName", "created", "msecs", "relativeCreated",
-    "thread", "threadName", "processName", "process", "taskName",
+    "message",
+    "asctime",
+    "args",
+    "exc_info",
+    "exc_text",
+    "stack_info",
+    "msg",
+    "name",
+    "levelname",
+    "levelno",
+    "pathname",
+    "filename",
+    "module",
+    "lineno",
+    "funcName",
+    "created",
+    "msecs",
+    "relativeCreated",
+    "thread",
+    "threadName",
+    "processName",
+    "process",
+    "taskName",
 }
 
 

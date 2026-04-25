@@ -32,6 +32,7 @@ except ImportError:
 
 try:
     from dotenv import load_dotenv
+
     load_dotenv(ROOT / ".env")
 except ImportError:
     pass  # dotenv optional; rely on env vars

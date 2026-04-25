@@ -1,4 +1,4 @@
-from pydantic import AnyHttpUrl
+from pydantic import AnyHttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,6 +28,28 @@ class Settings(BaseSettings):
     # Generate once with: uv run python scripts/gen_service_token.py
     GOTRUE_SERVICE_ROLE_KEY: str
 
+    # ── S3 / MinIO ────────────────────────────────────────────────────────────────
+    # Development: http://minio:9000 (container-to-container)
+    # Production:  set to actual S3 or MinIO endpoint via env var
+    S3_ENDPOINT_URL: SecretStr = SecretStr("http://minio:9000")  # type: ignore[assignment]
+    AWS_ACCESS_KEY_ID: SecretStr = SecretStr("minioadmin")  # type: ignore[assignment]
+    AWS_SECRET_ACCESS_KEY: SecretStr = SecretStr("minioadmin")  # type: ignore[assignment]
+    S3_REGION: str = "us-east-1"
+    S3_BUCKET_IMPORTS: str = "masjidkoi-imports"
+    S3_BUCKET_PHOTOS: str = "masjidkoi-photos"
+    S3_BUCKET_AVATARS: str = "masjidkoi-avatars"
+
+    # ── SMTP ──────────────────────────────────────────────────────────────────────
+    SMTP_HOST: str = "localhost"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: SecretStr = SecretStr("")  # type: ignore[assignment]
+    SMTP_FROM: str = "noreply@masjidkoi.com"
+    SMTP_ENABLED: bool = False  # disabled by default; enable via .env in production
+
+    # ── Redis ─────────────────────────────────────────────────────────────────────
+    REDIS_URL: str = "redis://redis:6379/0"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -42,6 +64,18 @@ class Settings(BaseSettings):
     @property
     def gotrue_base_url(self) -> str:
         return str(self.GOTRUE_URL).rstrip("/")
+
+    @property
+    def s3_endpoint(self) -> str:
+        return self.S3_ENDPOINT_URL.get_secret_value()
+
+    @property
+    def aws_key(self) -> str:
+        return self.AWS_ACCESS_KEY_ID.get_secret_value()
+
+    @property
+    def aws_secret(self) -> str:
+        return self.AWS_SECRET_ACCESS_KEY.get_secret_value()
 
 
 settings = Settings()

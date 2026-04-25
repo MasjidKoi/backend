@@ -20,9 +20,7 @@ class BaseRepository(Generic[ModelT]):
 
     async def get_by_id(self, pk: UUID) -> ModelT | None:
         result = await self.db.execute(
-            select(self.model).where(
-                getattr(self.model, self._pk_name()) == pk
-            )
+            select(self.model).where(getattr(self.model, self._pk_name()) == pk)
         )
         return result.scalar_one_or_none()
 

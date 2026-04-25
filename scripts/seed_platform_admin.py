@@ -29,6 +29,7 @@ sys.path.insert(0, str(ROOT))
 # Load .env
 try:
     from dotenv import load_dotenv
+
     load_dotenv(ROOT / ".env")
 except ImportError:
     pass
@@ -39,7 +40,10 @@ import httpx
 # Falls back to localhost:9999 if not set.
 _gotrue_url = os.environ.get("GOTRUE_EXTERNAL_URL") or os.environ.get("GOTRUE_URL", "")
 # Replace Docker-internal hostname with localhost for scripts running on the host
-GOTRUE_URL = _gotrue_url.replace("http://gotrue:", "http://localhost:").rstrip("/") or "http://localhost:9999"
+GOTRUE_URL = (
+    _gotrue_url.replace("http://gotrue:", "http://localhost:").rstrip("/")
+    or "http://localhost:9999"
+)
 SERVICE_KEY = os.environ.get("GOTRUE_SERVICE_ROLE_KEY", "")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 
@@ -87,14 +91,15 @@ async def main() -> None:
     print("\n=== MasjidKoi — Seed Platform Admin ===\n")
 
     email = os.environ.get("ADMIN_EMAIL") or prompt("Email")
-    password = os.environ.get("ADMIN_PASSWORD") or prompt("Password (leave blank to send invite email)")
+    password = os.environ.get("ADMIN_PASSWORD") or prompt(
+        "Password (leave blank to send invite email)"
+    )
 
     if not email:
         print("ERROR: email is required")
         sys.exit(1)
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
-
         # Check if user already exists
         existing = await find_user_by_email(email, client)
 
@@ -104,7 +109,9 @@ async def main() -> None:
             print(f"   Current role: {current_role or 'none'}")
 
             if current_role == "platform_admin":
-                print("   Already a platform_admin — updating app_metadata just in case.")
+                print(
+                    "   Already a platform_admin — updating app_metadata just in case."
+                )
                 await set_app_metadata(existing["id"], client)
                 print("   ✓ app_metadata confirmed.")
 
@@ -120,7 +127,9 @@ async def main() -> None:
                 print("\n✓ Done — platform_admin is ready.")
                 return
             else:
-                confirm = input(f"   Promote to platform_admin? [y/N]: ").strip().lower()
+                confirm = (
+                    input(f"   Promote to platform_admin? [y/N]: ").strip().lower()
+                )
                 if confirm != "y":
                     print("Aborted.")
                     sys.exit(0)
@@ -176,7 +185,9 @@ async def main() -> None:
             print(f"  ID:    {user['id']}")
             print(f"  Email: {email}")
             print(f"  Role:  platform_admin")
-            print(f"\n  The admin will receive an email with a link to set their password.")
+            print(
+                f"\n  The admin will receive an email with a link to set their password."
+            )
             print(f"  They will be directed to: {FRONTEND_URL}/invite/accept")
 
     print("\n=== Next steps ===")

@@ -1,6 +1,8 @@
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
+import redis.asyncio as aioredis
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -10,10 +12,32 @@ from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.middleware import LoggingMiddleware
 from app.db.session import async_session_maker
-from app.routers import admin, announcements, auth, masjids, prayer_times
+from app.routers import (
+    admin,
+    announcements,
+    auth,
+    campaigns,
+    co_admins,
+    events,
+    gamification,
+    masjids,
+    prayer_times,
+    support,
+    users,
+)
 
 setup_logging(settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+    logger.info("Redis connection pool created")
+    yield
+    await app.state.redis.aclose()
+    logger.info("Redis connection pool closed")
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -21,6 +45,7 @@ app = FastAPI(
     description="MasjidKoi Backend API — connecting worshippers with their nearest masjid.",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # CORS — allow frontend dev server and production origins
@@ -43,10 +68,19 @@ app.include_router(auth.router)
 app.include_router(masjids.router)
 app.include_router(prayer_times.router)
 app.include_router(announcements.router)
+app.include_router(events.router)
+app.include_router(campaigns.router)
+app.include_router(co_admins.router)
+app.include_router(gamification.masjid_router)
+app.include_router(gamification.user_router)
+app.include_router(support.user_router)
+app.include_router(support.admin_router)
+app.include_router(users.router)
 app.include_router(admin.router)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
+
 
 @app.get(
     "/health",
@@ -68,9 +102,7 @@ async def health() -> JSONResponse:
         logger.error("Health check DB error", extra={"error": db_error})
 
     http_status = (
-        status.HTTP_200_OK
-        if db_status == "ok"
-        else status.HTTP_503_SERVICE_UNAVAILABLE
+        status.HTTP_200_OK if db_status == "ok" else status.HTTP_503_SERVICE_UNAVAILABLE
     )
 
     return JSONResponse(
