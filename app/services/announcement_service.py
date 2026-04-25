@@ -46,11 +46,11 @@ class AnnouncementService:
     async def _get_masjid_or_404(self, masjid_id: uuid.UUID) -> None:
         masjid = await self.masjid_repo.get_by_id(masjid_id)
         if not masjid:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Masjid not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Masjid not found"
+            )
 
-    async def _get_ann_or_404(
-        self, announcement_id: uuid.UUID, masjid_id: uuid.UUID
-    ):
+    async def _get_ann_or_404(self, announcement_id: uuid.UUID, masjid_id: uuid.UUID):
         ann = await self.repo.get_by_id_and_masjid(announcement_id, masjid_id)
         if not ann:
             raise HTTPException(

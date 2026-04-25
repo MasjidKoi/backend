@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 class AnnouncementCreate(BaseModel):
     title: str = Field(..., max_length=200)
     body: str = Field(..., min_length=1)
-    publish: bool = False   # True = publish immediately; False = save as draft
+    publish: bool = False  # True = publish immediately; False = save as draft
 
 
 class AnnouncementUpdate(BaseModel):

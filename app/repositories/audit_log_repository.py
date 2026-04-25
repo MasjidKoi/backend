@@ -20,6 +20,7 @@ class AuditLogRepository(BaseRepository[AuditLog]):
         target_entity: str | None = None,
         target_id: uuid.UUID | None = None,
         ip_address: str | None = None,
+        details: dict | None = None,
     ) -> None:
         """
         Append an audit record. Uses flush() NOT commit() — the calling
@@ -33,6 +34,7 @@ class AuditLogRepository(BaseRepository[AuditLog]):
             target_entity=target_entity,
             target_id=target_id,
             ip_address=ip_address,
+            details=details,
         )
         self.db.add(entry)
         await self.db.flush()
@@ -42,15 +44,21 @@ class AuditLogRepository(BaseRepository[AuditLog]):
         offset: int = 0,
         limit: int = 50,
     ) -> tuple[list[AuditLog], int]:
-        count = (await self.db.execute(
-            select(func.count()).select_from(AuditLog)
-        )).scalar_one()
+        count = (
+            await self.db.execute(select(func.count()).select_from(AuditLog))
+        ).scalar_one()
 
-        rows = list((await self.db.execute(
-            select(AuditLog)
-            .order_by(AuditLog.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-        )).scalars().all())
+        rows = list(
+            (
+                await self.db.execute(
+                    select(AuditLog)
+                    .order_by(AuditLog.created_at.desc())
+                    .offset(offset)
+                    .limit(limit)
+                )
+            )
+            .scalars()
+            .all()
+        )
 
         return rows, count

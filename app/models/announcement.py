@@ -24,7 +24,9 @@ class Announcement(Base):
     body: Mapped[str] = mapped_column(Text, nullable=False)
 
     is_published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Who posted it (GoTrue user_id + email for display)
     posted_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
