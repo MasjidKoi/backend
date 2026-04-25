@@ -165,8 +165,16 @@ class PrayerTimeRepository(BaseRepository[PrayerTimeRecord]):
             "updated_at": text("now()"),
         }
         for col in (
-            "fajr_azan", "dhuhr_azan", "asr_azan", "maghrib_azan", "isha_azan",
-            "fajr_iqamah", "dhuhr_iqamah", "asr_iqamah", "maghrib_iqamah", "isha_iqamah",
+            "fajr_azan",
+            "dhuhr_azan",
+            "asr_azan",
+            "maghrib_azan",
+            "isha_azan",
+            "fajr_iqamah",
+            "dhuhr_iqamah",
+            "asr_iqamah",
+            "maghrib_iqamah",
+            "isha_iqamah",
         ):
             update_set[col] = text(f"COALESCE(EXCLUDED.{col}, prayer_times.{col})")
 

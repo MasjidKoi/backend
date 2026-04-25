@@ -20,7 +20,10 @@ from app.models.masjid import Masjid
 from app.models.prayer_times import JumahSchedule, PrayerTimeRecord
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.masjid_repository import MasjidRepository
-from app.repositories.prayer_time_repository import JumahRepository, PrayerTimeRepository
+from app.repositories.prayer_time_repository import (
+    JumahRepository,
+    PrayerTimeRepository,
+)
 from app.schemas.prayer_times import (
     JumahResponse,
     JumahUpdate,
@@ -138,10 +141,15 @@ class PrayerTimeService:
 
         # Edge case 4: None times (should not happen for Bangladesh lat/lng)
         none_prayers = [
-            name for name, t in [
-                ("fajr", times.fajr), ("dhuhr", times.dhuhr), ("asr", times.asr),
-                ("maghrib", times.maghrib), ("isha", times.isha),
-            ] if t is None
+            name
+            for name, t in [
+                ("fajr", times.fajr),
+                ("dhuhr", times.dhuhr),
+                ("asr", times.asr),
+                ("maghrib", times.maghrib),
+                ("isha", times.isha),
+            ]
+            if t is None
         ]
         if none_prayers:
             raise HTTPException(
@@ -215,6 +223,7 @@ class PrayerTimeService:
         if schedule is None:
             # Return an empty response object without DB row
             from datetime import datetime, timezone
+
             return JumahResponse(
                 masjid_id=masjid_id,
                 khutbah_1_azan=None,
@@ -252,23 +261,45 @@ class PrayerTimeService:
         if existing is None:
             method = data.calculation_method or CalculationMethod.KARACHI
             madhab = data.madhab or Madhab.HANAFI
-            existing = await self._auto_calculate_and_cache(masjid, data.date, method, madhab)
+            existing = await self._auto_calculate_and_cache(
+                masjid, data.date, method, madhab
+            )
             await self.repo.commit()
 
         # Merge: use provided value where given, else keep existing DB value
-        fajr_azan    = _parse_time(data.fajr_azan)    or existing.fajr_azan
-        dhuhr_azan   = _parse_time(data.dhuhr_azan)   or existing.dhuhr_azan
-        asr_azan     = _parse_time(data.asr_azan)     or existing.asr_azan
+        fajr_azan = _parse_time(data.fajr_azan) or existing.fajr_azan
+        dhuhr_azan = _parse_time(data.dhuhr_azan) or existing.dhuhr_azan
+        asr_azan = _parse_time(data.asr_azan) or existing.asr_azan
         maghrib_azan = _parse_time(data.maghrib_azan) or existing.maghrib_azan
-        isha_azan    = _parse_time(data.isha_azan)    or existing.isha_azan
+        isha_azan = _parse_time(data.isha_azan) or existing.isha_azan
 
         # Iqamah: use provided if field was explicitly sent, else keep existing
         provided = data.model_fields_set
-        fajr_iqamah    = _parse_time(data.fajr_iqamah)    if "fajr_iqamah"    in provided else existing.fajr_iqamah
-        dhuhr_iqamah   = _parse_time(data.dhuhr_iqamah)   if "dhuhr_iqamah"   in provided else existing.dhuhr_iqamah
-        asr_iqamah     = _parse_time(data.asr_iqamah)     if "asr_iqamah"     in provided else existing.asr_iqamah
-        maghrib_iqamah = _parse_time(data.maghrib_iqamah) if "maghrib_iqamah" in provided else existing.maghrib_iqamah
-        isha_iqamah    = _parse_time(data.isha_iqamah)    if "isha_iqamah"    in provided else existing.isha_iqamah
+        fajr_iqamah = (
+            _parse_time(data.fajr_iqamah)
+            if "fajr_iqamah" in provided
+            else existing.fajr_iqamah
+        )
+        dhuhr_iqamah = (
+            _parse_time(data.dhuhr_iqamah)
+            if "dhuhr_iqamah" in provided
+            else existing.dhuhr_iqamah
+        )
+        asr_iqamah = (
+            _parse_time(data.asr_iqamah)
+            if "asr_iqamah" in provided
+            else existing.asr_iqamah
+        )
+        maghrib_iqamah = (
+            _parse_time(data.maghrib_iqamah)
+            if "maghrib_iqamah" in provided
+            else existing.maghrib_iqamah
+        )
+        isha_iqamah = (
+            _parse_time(data.isha_iqamah)
+            if "isha_iqamah" in provided
+            else existing.isha_iqamah
+        )
 
         record = await self.repo.upsert_manual(
             masjid_id=masjid_id,
@@ -287,8 +318,12 @@ class PrayerTimeService:
             madhab=data.madhab or existing.madhab,
         )
         await self.audit.log(
-            admin_id=user.user_id, admin_email=user.email, admin_role=user.role,
-            action="set_prayer_times", target_entity="prayer_times", target_id=masjid_id,
+            admin_id=user.user_id,
+            admin_email=user.email,
+            admin_role=user.role,
+            action="set_prayer_times",
+            target_entity="prayer_times",
+            target_id=masjid_id,
         )
         await self.repo.commit()
         return self._to_response(record)
@@ -313,20 +348,28 @@ class PrayerTimeService:
         try:
             lat, lng = self._extract_coords(masjid)
             times = calc.calculate(
-                lat=lat, lng=lng,
+                lat=lat,
+                lng=lng,
                 local_date=data.date,
                 tz_string=masjid.timezone,
                 method=method,
                 madhab=madhab,
             )
         except RuntimeError as e:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
+            )
 
         none_prayers = [
-            name for name, t in [
-                ("fajr", times.fajr), ("dhuhr", times.dhuhr), ("asr", times.asr),
-                ("maghrib", times.maghrib), ("isha", times.isha),
-            ] if t is None
+            name
+            for name, t in [
+                ("fajr", times.fajr),
+                ("dhuhr", times.dhuhr),
+                ("asr", times.asr),
+                ("maghrib", times.maghrib),
+                ("isha", times.isha),
+            ]
+            if t is None
         ]
         if none_prayers:
             raise HTTPException(
@@ -346,8 +389,12 @@ class PrayerTimeService:
             madhab=madhab,
         )
         await self.audit.log(
-            admin_id=user.user_id, admin_email=user.email, admin_role=user.role,
-            action="recalc_prayer_times", target_entity="prayer_times", target_id=masjid_id,
+            admin_id=user.user_id,
+            admin_email=user.email,
+            admin_role=user.role,
+            action="recalc_prayer_times",
+            target_entity="prayer_times",
+            target_id=masjid_id,
         )
         await self.repo.commit()
         return self._to_response(record)

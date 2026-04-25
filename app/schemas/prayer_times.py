@@ -19,6 +19,7 @@ _TIME_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+
 def _fmt(t: dt_time | None) -> str | None:
     """Convert datetime.time → 'HH:MM' string, or None."""
     return t.strftime("%H:%M") if t is not None else None
@@ -26,12 +27,14 @@ def _fmt(t: dt_time | None) -> str | None:
 
 # ── Prayer time response ───────────────────────────────────────────────────────
 
+
 class PrayerTimeResponse(BaseModel):
     """
     Single-date prayer time response.
     Times are 'HH:MM' strings representing LOCAL time at the masjid.
     Azan = announcement time. Iqamah = when prayer actually starts (null until admin sets).
     """
+
     prayer_time_id: uuid.UUID
     masjid_id: uuid.UUID
     date: date
@@ -58,11 +61,13 @@ class PrayerTimeResponse(BaseModel):
 
 class PrayerTimesListResponse(BaseModel):
     """Multi-day response for ?days=N query param (mobile 7-day cache)."""
+
     dates: list[PrayerTimeResponse]
     total: int
 
 
 # ── Manual override (PUT) ──────────────────────────────────────────────────────
+
 
 class PrayerTimeManualUpdate(BaseModel):
     """
@@ -82,6 +87,7 @@ class PrayerTimeManualUpdate(BaseModel):
     Example — set a custom Fajr azan and its iqamah:
         {"date": "2026-04-16", "fajr_azan": "04:30", "fajr_iqamah": "04:45"}
     """
+
     date: date
 
     # Azan overrides — admin can set different times from calculated
@@ -104,6 +110,7 @@ class PrayerTimeManualUpdate(BaseModel):
 
 # ── Recalculate (POST) ────────────────────────────────────────────────────────
 
+
 class PrayerTimeRecalcRequest(BaseModel):
     """
     POST /masjids/{id}/prayer-times/recalc
@@ -111,12 +118,14 @@ class PrayerTimeRecalcRequest(BaseModel):
     Force-recalculate using the adhan library.
     Clears is_manual flag. Existing iqamah times are preserved.
     """
+
     date: date
     calculation_method: str | None = None
     madhab: str | None = None
 
 
 # ── Jumah schemas ──────────────────────────────────────────────────────────────
+
 
 class JumahResponse(BaseModel):
     """
@@ -125,6 +134,7 @@ class JumahResponse(BaseModel):
     Returns the standing Friday prayer schedule.
     All time fields are 'HH:MM' strings or null if not yet set.
     """
+
     masjid_id: uuid.UUID
     khutbah_1_azan: str | None
     khutbah_1_start: str | None
@@ -139,6 +149,7 @@ class JumahUpdate(BaseModel):
     PUT /masjids/{id}/jumah — all fields optional (true PATCH semantics).
     Only provided fields are written; others keep existing values.
     """
+
     khutbah_1_azan: str | None = Field(default=None, pattern=_TIME_PATTERN)
     khutbah_1_start: str | None = Field(default=None, pattern=_TIME_PATTERN)
     khutbah_2_azan: str | None = Field(default=None, pattern=_TIME_PATTERN)

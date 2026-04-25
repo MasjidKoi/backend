@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from adhan import adhan as _adhan_fn  # type: ignore[import-untyped]
+
     _ADHAN_AVAILABLE = True
 except ImportError:
     _ADHAN_AVAILABLE = False
@@ -32,19 +33,24 @@ except ImportError:
 # adhan parameter dicts (mirroring adhan-js method definitions)
 _METHODS: dict[str, dict] = {
     CalculationMethod.KARACHI: {
-        "fajr_angle": 18, "isha_angle": 18,
+        "fajr_angle": 18,
+        "isha_angle": 18,
     },
     CalculationMethod.MUSLIM_WORLD_LEAGUE: {
-        "fajr_angle": 18, "isha_angle": 17,
+        "fajr_angle": 18,
+        "isha_angle": 17,
     },
     CalculationMethod.ISNA: {
-        "fajr_angle": 15, "isha_angle": 15,
+        "fajr_angle": 15,
+        "isha_angle": 15,
     },
     CalculationMethod.EGYPT: {
-        "fajr_angle": 19.5, "isha_angle": 17.5,
+        "fajr_angle": 19.5,
+        "isha_angle": 17.5,
     },
     CalculationMethod.MAKKAH: {
-        "fajr_angle": 18.5, "isha_interval": 90,
+        "fajr_angle": 18.5,
+        "isha_interval": 90,
     },
 }
 
@@ -59,6 +65,7 @@ _ASR_MULTIPLIERS: dict[str, int] = {
 
 # ── Value object ───────────────────────────────────────────────────────────────
 
+
 @dataclass(frozen=True, slots=True)
 class CalculatedPrayerTimes:
     """
@@ -66,6 +73,7 @@ class CalculatedPrayerTimes:
     All times are local wall-clock (datetime.time, tz-naive).
     A field is None only if adhan couldn't compute it (extreme latitude — edge case 4).
     """
+
     fajr: dt_time | None
     dhuhr: dt_time | None
     asr: dt_time | None
@@ -76,6 +84,7 @@ class CalculatedPrayerTimes:
 
 
 # ── Timezone helpers ───────────────────────────────────────────────────────────
+
 
 def _safe_timezone(tz_string: str) -> ZoneInfo:
     """
@@ -110,6 +119,7 @@ def _utc_offset_hours(tz_string: str, for_date: date) -> float:
 
 # ── Main calculation function ──────────────────────────────────────────────────
 
+
 def calculate(
     lat: float,
     lng: float,
@@ -134,9 +144,7 @@ def calculate(
         madhab: School of jurisprudence (affects Asr calculation only)
     """
     if not _ADHAN_AVAILABLE:
-        raise RuntimeError(
-            "adhan package not installed. Run: uv add adhan"
-        )
+        raise RuntimeError("adhan package not installed. Run: uv add adhan")
 
     # Build parameters dict for adhan library.
     # Merge method angles + asr_multiplier into a flat dict.
@@ -164,7 +172,11 @@ def calculate(
         if val is None:
             logger.warning(
                 "adhan returned None for %r (lat=%s, lng=%s, date=%s, method=%s)",
-                key, lat, lng, local_date, method,
+                key,
+                lat,
+                lng,
+                local_date,
+                method,
             )
             return None
         # val is a datetime from adhan — extract just the time
@@ -174,7 +186,7 @@ def calculate(
 
     return CalculatedPrayerTimes(
         fajr=_to_time("fajr"),
-        dhuhr=_to_time("zuhr"),      # adhan uses "zuhr" key, not "dhuhr"
+        dhuhr=_to_time("zuhr"),  # adhan uses "zuhr" key, not "dhuhr"
         asr=_to_time("asr"),
         maghrib=_to_time("maghrib"),
         isha=_to_time("isha"),

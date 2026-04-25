@@ -41,10 +41,15 @@ router = APIRouter(prefix="/masjids", tags=["prayer-times"])
 async def get_prayer_times(
     masjid_id: uuid.UUID,
     prayer_date: date | None = Query(
-        default=None, alias="date", description="Local date (YYYY-MM-DD). Defaults to today."
+        default=None,
+        alias="date",
+        description="Local date (YYYY-MM-DD). Defaults to today.",
     ),
     days: int = Query(
-        default=1, ge=1, le=7, description="Number of consecutive days to return (max 7)."
+        default=1,
+        ge=1,
+        le=7,
+        description="Number of consecutive days to return (max 7).",
     ),
     service: PrayerTimeService = Depends(get_prayer_time_service),
 ) -> PrayerTimesListResponse:
