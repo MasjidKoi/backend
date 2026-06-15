@@ -118,7 +118,25 @@ class MasjidSummary(BaseModel):
 
 
 class MasjidNearbyResult(MasjidSummary):
+    """
+    Map-pin payload: MasjidSummary + distance + the static fields a pin needs to
+    render (coordinates, facility booleans, cover photo). Built explicitly in the
+    service — coordinates come from the PostGIS `location`, the facility booleans
+    from the 1:1 facilities row, and the cover URL from the `is_cover` photo.
+    Intentionally static and cacheable — no per-masjid prayer times here (mobile
+    fetches those lazily per peek card).
+    """
+
     distance_m: float
+    latitude: float
+    longitude: float
+    has_sisters_section: bool
+    has_wudu_area: bool
+    has_wheelchair_access: bool
+    has_parking: bool
+    has_janazah: bool
+    has_school: bool
+    cover_photo_url: str | None = None
 
 
 class MasjidAdminListResponse(BaseModel):

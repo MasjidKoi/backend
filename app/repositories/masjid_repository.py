@@ -6,7 +6,7 @@ from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.orm import selectinload
 
 from app.models.enums import MasjidStatus
-from app.models.masjid import Masjid, MasjidContact, MasjidFacilities
+from app.models.masjid import Masjid, MasjidContact, MasjidFacilities, MasjidPhoto
 from app.repositories.base import BaseRepository
 
 
@@ -17,8 +17,6 @@ class MasjidRepository(BaseRepository[Masjid]):
 
     async def get_by_id_with_relations(self, masjid_id: uuid.UUID) -> Masjid | None:
         """Full profile: masjid + facilities + contact + photos via selectinload."""
-        from app.models.masjid import MasjidPhoto
-
         result = await self.db.execute(
             select(Masjid)
             .options(
@@ -43,25 +41,44 @@ class MasjidRepository(BaseRepository[Masjid]):
         has_wudu_area: bool | None = None,
         has_janazah: bool | None = None,
         has_school: bool | None = None,
-    ) -> list[tuple[Masjid, float]]:
+    ) -> list[tuple[Masjid, float, MasjidFacilities | None, str | None]]:
         """
-        PostGIS ST_DWithin radius search with optional facility filters.
+        PostGIS ST_DWithin radius search returning the data a map pin needs:
+        masjid, distance, facilities (for the six booleans), and the cover photo URL.
+
         CRITICAL: status filter applied BEFORE spatial predicate so the GIST
         index on location is used.  Longitude is the x-axis (first arg).
-        JOIN with masjid_facilities is added only when facility filters are requested.
+
+        The facilities row is LEFT JOINed unconditionally so its booleans are
+        always available; the optional facility filters add equality predicates on
+        that same join (which also drop rows with no facilities row when a filter
+        is set). The cover photo URL is a correlated scalar subquery so we never
+        load the full photo collection.
         """
         point = func.ST_GeographyFromText(f"SRID=4326;POINT({lng} {lat})")
         distance_expr = ST_Distance(Masjid.location, point).label("distance_m")
+        cover_url_subq = (
+            select(MasjidPhoto.url)
+            .where(MasjidPhoto.masjid_id == Masjid.masjid_id)
+            .where(MasjidPhoto.is_cover.is_(True))
+            .limit(1)
+            .scalar_subquery()
+            .label("cover_photo_url")
+        )
 
         stmt = (
-            select(Masjid, distance_expr)
+            select(Masjid, distance_expr, MasjidFacilities, cover_url_subq)
+            .outerjoin(
+                MasjidFacilities,
+                Masjid.masjid_id == MasjidFacilities.masjid_id,
+            )
             .where(Masjid.status == MasjidStatus.ACTIVE)
             .where(ST_DWithin(Masjid.location, point, radius_m))
             .order_by(distance_expr)
             .limit(limit)
         )
 
-        # Apply facility filters — JOIN only when at least one filter is provided
+        # Apply optional facility filters as equality predicates on the joined row.
         facility_filters: dict[str, bool] = {
             k: v
             for k, v in {
@@ -74,16 +91,11 @@ class MasjidRepository(BaseRepository[Masjid]):
             }.items()
             if v is not None
         }
-        if facility_filters:
-            stmt = stmt.join(
-                MasjidFacilities,
-                Masjid.masjid_id == MasjidFacilities.masjid_id,
-            )
-            for col, val in facility_filters.items():
-                stmt = stmt.where(getattr(MasjidFacilities, col) == val)
+        for col, val in facility_filters.items():
+            stmt = stmt.where(getattr(MasjidFacilities, col) == val)
 
         rows = (await self.db.execute(stmt)).all()
-        return [(row[0], float(row[1])) for row in rows]
+        return [(row[0], float(row[1]), row[2], row[3]) for row in rows]
 
     async def get_stats(self) -> dict:
         """Aggregated counts for the admin dashboard."""
