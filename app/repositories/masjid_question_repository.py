@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.models.enums import QuestionStatus
 from app.models.masjid_question import MasjidQuestion
@@ -92,11 +92,24 @@ class MasjidQuestionRepository(BaseRepository[MasjidQuestion]):
         status: str | None,
         offset: int,
         limit: int,
+        ngo_overdue_before: datetime | None = None,
     ) -> tuple[list[MasjidQuestion], int]:
-        """Moderation queue for a masjid (any/filtered status, oldest first)."""
+        """Moderation queue for a masjid (any/filtered status, oldest first).
+
+        ``ngo_overdue_before`` restricts the queue to the NGO-visible slice of a
+        *claimed* masjid (Gap #10): pending rows only when overdue past the SLA,
+        plus all resolved history. Left unset for the masjid admin's own queue.
+        """
         base = select(MasjidQuestion).where(MasjidQuestion.masjid_id == masjid_id)
         if status:
             base = base.where(MasjidQuestion.status == status)
+        if ngo_overdue_before is not None:
+            base = base.where(
+                or_(
+                    MasjidQuestion.status != QuestionStatus.PENDING,
+                    MasjidQuestion.created_at <= ngo_overdue_before,
+                )
+            )
         total: int = (
             await self.db.execute(select(func.count()).select_from(base.subquery()))
         ).scalar_one()
