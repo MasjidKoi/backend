@@ -139,6 +139,16 @@ class MasjidNearbyResult(MasjidSummary):
     cover_photo_url: str | None = None
 
 
+class MasjidSearchResult(MasjidSummary):
+    """
+    Search hit. `distance_m` is populated only when the caller supplies lat/lng
+    (location-biased search); otherwise it stays null and results are ranked by
+    match quality alone.
+    """
+
+    distance_m: float | None = None
+
+
 class MasjidAdminListResponse(BaseModel):
     items: list[MasjidSummary]
     total: int

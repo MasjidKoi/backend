@@ -25,7 +25,7 @@ from app.schemas.masjid import (
     MasjidMergeRequest,
     MasjidNearbyResult,
     MasjidResponse,
-    MasjidSummary,
+    MasjidSearchResult,
     MasjidUpdate,
     PhotoReorderRequest,
     PhotoResponse,
@@ -119,14 +119,26 @@ async def get_nearby(
 
 @router.get(
     "/search",
-    response_model=list[MasjidSummary],
-    summary="Search masjids by name or area — public",
+    response_model=list[MasjidSearchResult],
+    summary="Search masjids by name or area — public, optional location bias",
 )
 async def search_masjids(
     q: str = Query(..., min_length=2, description="Search query (min 2 chars)"),
+    lat: float | None = Query(
+        default=None,
+        ge=-90.0,
+        le=90.0,
+        description="Optional latitude — when set with lng, ranks ties by distance",
+    ),
+    lng: float | None = Query(
+        default=None,
+        ge=-180.0,
+        le=180.0,
+        description="Optional longitude — must be supplied together with lat",
+    ),
     service: MasjidService = Depends(get_masjid_service),
-) -> list[MasjidSummary]:
-    return await service.search(q)
+) -> list[MasjidSearchResult]:
+    return await service.search(q, lat=lat, lng=lng)
 
 
 @router.get(
