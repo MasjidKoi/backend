@@ -50,6 +50,32 @@ class MasjidSubmissionStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class PhotoSource(StrEnum):
+    """Origin of a masjid photo.
+
+    ADMIN photos are the curated profile gallery (uploaded by the masjid's
+    admin / platform admin). COMMUNITY photos are visitor submissions that pass
+    through a pending → approved | rejected moderation lifecycle before they are
+    ever shown publicly.
+    """
+
+    ADMIN = "admin"
+    COMMUNITY = "community"
+
+
+class PhotoModerationStatus(StrEnum):
+    """Moderation lifecycle of a masjid photo.
+
+    Admin photos are born APPROVED. Community submissions are born PENDING and
+    only become publicly visible once APPROVED; REJECTED photos remain visible
+    to their submitter only (no public trace).
+    """
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class MadrashaStatus(StrEnum):
     PENDING = "pending"
     ACTIVE = "active"

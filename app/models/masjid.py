@@ -7,6 +7,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     SmallInteger,
     String,
@@ -17,7 +18,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.enums import MasjidStatus
+from app.models.enums import MasjidStatus, PhotoModerationStatus, PhotoSource
 
 
 class Masjid(Base):
@@ -216,7 +217,36 @@ class MasjidContact(Base):
 
 
 class MasjidPhoto(Base):
+    """A masjid photo.
+
+    The same table holds two kinds of rows distinguished by ``source``:
+
+    * ``admin`` — the curated profile gallery (always ``approved``, ``is_cover``
+      / ``display_order`` meaningful, capped per masjid). This is what the public
+      profile read and the nearby cover-photo subquery return.
+    * ``community`` — visitor submissions that start ``pending`` and only surface
+      through the dedicated community-photo listing once ``approved``. They never
+      participate in the admin gallery, cover selection, or reordering.
+
+    Admin queries scope on ``source = 'admin'`` so community submissions can never
+    eat into the admin photo cap or leak into the profile gallery.
+    """
+
     __tablename__ = "masjid_photos"
+    __table_args__ = (
+        CheckConstraint(
+            "source IN ('admin','community')",
+            name="ck_masjid_photos_source",
+        ),
+        CheckConstraint(
+            "status IN ('pending','approved','rejected')",
+            name="ck_masjid_photos_status",
+        ),
+        # Public approved-community listing + admin source-scoped reads.
+        Index("ix_masjid_photos_masjid_source_status", "masjid_id", "source", "status"),
+        # Backs GET /me/photo-submissions.
+        Index("ix_masjid_photos_uploaded_by", "uploaded_by"),
+    )
 
     photo_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -229,8 +259,25 @@ class MasjidPhoto(Base):
     url: Mapped[str] = mapped_column(Text, nullable=False)
     is_cover: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    source: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=PhotoSource.ADMIN
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=PhotoModerationStatus.APPROVED
+    )
+    # No FK — users live in GoTrue's auth schema, not a local table. Nullable so a
+    # submission survives deletion of the submitter (treated as SET NULL).
+    uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
     masjid: Mapped["Masjid"] = relationship(

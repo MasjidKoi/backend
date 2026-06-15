@@ -19,6 +19,7 @@ from app.routers import (
     auth,
     campaigns,
     co_admins,
+    community_photos,
     events,
     gamification,
     masjid_submissions,
@@ -82,6 +83,9 @@ app.add_middleware(LoggingMiddleware)
 app.include_router(auth.router)
 # Before masjids.router so /masjids/submissions matches ahead of /masjids/{masjid_id}.
 app.include_router(masjid_submissions.router)
+# community_photos paths carry a static segment so they never collide with
+# masjids.router's /masjids/{masjid_id}; ordering relative to it is immaterial.
+app.include_router(community_photos.router)
 app.include_router(masjids.router)
 app.include_router(prayer_times.router)
 app.include_router(announcements.router)
