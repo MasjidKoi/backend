@@ -17,7 +17,7 @@ Endpoint map:
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,11 +26,16 @@ from app.core.security import CurrentUser
 from app.db.session import get_db
 from app.dependencies.auth import get_current_user, require_platform_admin
 from app.dependencies.co_admin_invite import get_co_admin_invite_service
+from app.dependencies.otp_auth import get_otp_auth_service
 from app.models.enums import AdminRole
 from app.schemas.auth import (
     AdminInviteRequest,
     AdminInviteResponse,
     LoginRequest,
+    OtpRequest,
+    OtpRequestResponse,
+    OtpTokenResponse,
+    OtpVerifyRequest,
     PasswordResetRequest,
     RefreshRequest,
     TokenResponse,
@@ -40,6 +45,7 @@ from app.schemas.auth import (
 from app.schemas.co_admin_invite import CoAdminAcceptRequest, CoAdminDeclineRequest
 from app.services.co_admin_invite_service import CoAdminInviteService
 from app.services.gotrue_client import gotrue
+from app.services.otp_auth_service import OtpAuthService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -68,6 +74,51 @@ async def login(body: LoginRequest) -> TokenResponse:
         expires_in=data["expires_in"],
         refresh_token=data["refresh_token"],
     )
+
+
+# ── Consumer email-OTP (passwordless) ───────────────────────────────────────────
+
+
+@router.post(
+    "/otp/request",
+    response_model=OtpRequestResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Request a login code by email (passwordless)",
+    description=(
+        "Always returns 202 regardless of whether the email maps to an account "
+        "(no enumeration). Implicit signup — first-time emails are provisioned "
+        "automatically. `retry_after_seconds` is the resend cooldown remaining, "
+        "so the client can resync its countdown after a restart. Inside the "
+        "cooldown window (or once a send cap is hit) no new code is emailed."
+    ),
+)
+async def request_otp(
+    body: OtpRequest,
+    request: Request,
+    service: OtpAuthService = Depends(get_otp_auth_service),
+) -> OtpRequestResponse:
+    client_ip = request.client.host if request.client else "unknown"
+    return await service.request_otp(str(body.email), client_ip)
+
+
+@router.post(
+    "/otp/verify",
+    response_model=OtpTokenResponse,
+    summary="Verify an emailed login code → issue a session",
+    description=(
+        "On success returns access/refresh tokens plus `is_new_user` (true on the "
+        "first-ever verify, which bootstraps the user_profiles row).\n\n"
+        "Failure states are distinguished via `detail.code`:\n"
+        "- `invalid_code` (401) — wrong code; `detail.attempts_remaining` included\n"
+        "- `code_expired` (401) — the 10-minute window lapsed; request a new code\n"
+        "- `too_many_attempts` (429) — 5 wrong tries; a fresh code is required"
+    ),
+)
+async def verify_otp(
+    body: OtpVerifyRequest,
+    service: OtpAuthService = Depends(get_otp_auth_service),
+) -> OtpTokenResponse:
+    return await service.verify_otp(str(body.email), body.code)
 
 
 # ── Refresh ────────────────────────────────────────────────────────────────────
