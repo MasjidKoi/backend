@@ -396,9 +396,28 @@ class MasjidService:
             has_school=has_school,
         )
         results = []
-        for masjid, dist in pairs:
+        for masjid, dist, facilities, cover_photo_url in pairs:
             summary = MasjidSummary.model_validate(masjid, from_attributes=True)
-            results.append(MasjidNearbyResult(**summary.model_dump(), distance_m=dist))
+            point = to_shape(masjid.location)
+            results.append(
+                MasjidNearbyResult(
+                    **summary.model_dump(),
+                    distance_m=dist,
+                    latitude=point.y,
+                    longitude=point.x,
+                    has_sisters_section=bool(
+                        facilities and facilities.has_sisters_section
+                    ),
+                    has_wudu_area=bool(facilities and facilities.has_wudu_area),
+                    has_wheelchair_access=bool(
+                        facilities and facilities.has_wheelchair_access
+                    ),
+                    has_parking=bool(facilities and facilities.has_parking),
+                    has_janazah=bool(facilities and facilities.has_janazah),
+                    has_school=bool(facilities and facilities.has_school),
+                    cover_photo_url=cover_photo_url,
+                )
+            )
         return results
 
     async def get_stats(self) -> dict:
