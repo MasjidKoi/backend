@@ -6,12 +6,17 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.core.logging import request_id_var
+
 logger = logging.getLogger(__name__)
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         request_id = str(uuid.uuid4())
+        # Bind into the request's task context so every downstream log line
+        # (services, gateway) is correlatable to this request via request_id.
+        token = request_id_var.set(request_id)
         start = time.perf_counter()
 
         logger.info(
@@ -39,6 +44,8 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 },
             )
             raise
+        finally:
+            request_id_var.reset(token)
 
         duration_ms = round((time.perf_counter() - start) * 1000, 2)
         level = logging.WARNING if response.status_code >= 400 else logging.INFO

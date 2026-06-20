@@ -7,6 +7,12 @@ class Settings(BaseSettings):
     VERSION: str = "0.1.0"
     APP_ENV: str = "development"
     LOG_LEVEL: str = "INFO"
+    # Run the in-process APScheduler in this instance. The bundled jobs (stale
+    # sweep, recurring nudges, digest, announcement publish) must fan out from
+    # exactly ONE runner. Leave true for a single process; set false on extra
+    # uvicorn workers / replicas (or run a dedicated scheduler worker). A Redis
+    # per-job lock guards against accidental duplication — see core/scheduler.py.
+    SCHEDULER_ENABLED: bool = True
 
     # ── Database ──────────────────────────────────────────────────────────────
     # FastAPI connects through PgBouncer (transaction pool mode)

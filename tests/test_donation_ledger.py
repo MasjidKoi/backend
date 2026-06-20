@@ -330,6 +330,40 @@ async def test_complete_from_ipn_invalid_verdict_fails(db, seed):
     assert done.status == DonationStatus.FAILED.value
 
 
+async def test_complete_from_ipn_validator_unreachable_stays_pending(db, seed):
+    """A transient validator error is retryable, NOT a 'failed' verdict: the
+    donation must stay PENDING so a later IPN retry can complete a paid donation
+    (regression for the silent money-loss bug where a validator 5xx → FAILED)."""
+    uid = await seed.user()
+    masjid = await seed.masjid(donations_enabled=True)
+
+    class _UnreachableGateway(FakeGateway):
+        async def validate_ipn(self, val_id) -> ValidationResult:
+            raise HTTPException(status_code=502, detail="validator down")
+
+    svc = DonationService(db, gateway=_UnreachableGateway())
+    created = (
+        await svc.create_pending(
+            _user(uid),
+            masjid_id=masjid.masjid_id,
+            amount=Decimal("500"),
+            category="general",
+            is_anonymous=False,
+        )
+    ).donation
+
+    with pytest.raises(HTTPException) as exc:
+        await svc.complete_from_ipn(val_id="VAL-1", tran_id=str(created.donation_id))
+    assert exc.value.status_code == 502
+
+    row = (
+        await db.execute(
+            select(Donation).where(Donation.donation_id == created.donation_id)
+        )
+    ).scalar_one()
+    assert row.status == DonationStatus.PENDING.value  # never FAILED on a blip
+
+
 async def test_complete_from_ipn_amount_mismatch_rejected(db, seed):
     uid = await seed.user()
     masjid = await seed.masjid(donations_enabled=True)

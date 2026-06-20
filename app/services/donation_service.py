@@ -42,6 +42,7 @@ from app.models.enums import (
     MasjidStatus,
     PushMessageType,
 )
+from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.disbursement_repository import DisbursementRepository
 from app.repositories.donation_repository import DonationRepository
 from app.repositories.masjid_campaign_repository import MasjidCampaignRepository
@@ -86,6 +87,7 @@ class DonationService:
         self.masjid_repo = MasjidRepository(db)
         self.campaign_repo = MasjidCampaignRepository(db)
         self.disbursement_repo = DisbursementRepository(db)
+        self.audit = AuditLogRepository(db)
         # Injectable so tests fake the gateway at its public seam.
         self.gateway = gateway or sslcommerz
 
@@ -210,11 +212,32 @@ class DonationService:
             # Session-create failure → the donation never had a payable URL.
             donation.status = DonationStatus.FAILED.value
             await self.repo.commit()
+            logger.warning(
+                "donation session-create failed → FAILED",
+                extra={
+                    "event": "donation_session_create_failed",
+                    "donation_id": did,
+                    "masjid_id": str(masjid_id),
+                    "gross": str(amount),
+                },
+            )
             raise
 
         donation.gateway_session_key = session_result.session_key
         await self.repo.commit()
         await self.repo.refresh(donation)
+        logger.info(
+            "donation created (PENDING)",
+            extra={
+                "event": "donation_created",
+                "donation_id": did,
+                "user_id": str(user.user_id),
+                "masjid_id": str(masjid_id),
+                "campaign_id": str(campaign_id) if campaign_id else None,
+                "category": category_value,
+                "gross": str(amount),
+            },
+        )
         return CheckoutResult(donation=donation, gateway_url=session_result.gateway_url)
 
     # ── Complete from validated IPN (→ COMPLETED) ─────────────────────────────
@@ -254,6 +277,15 @@ class DonationService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Donation is not awaiting payment",
             )
+
+        # End the read transaction BEFORE the external validation call so its
+        # PgBouncer server connection is returned to the pool. Holding it open
+        # across up to 15s of gateway I/O would pin one of the pool's 20 server
+        # connections per in-flight IPN and starve the rest of the app under a
+        # burst. commit() (not rollback) because expire_on_commit=False keeps the
+        # already-read row usable; only a read happened, so this writes nothing.
+        # The authoritative state is re-read below under a row lock regardless.
+        await self.db.commit()
 
         verdict = await self.gateway.validate_ipn(val_id)
 
@@ -299,6 +331,13 @@ class DonationService:
             verdict.tran_id == tran_id
             and verdict.currency == "BDT"
             and verdict.gross == donation.gross_amount
+            # Defence in depth: the gateway already folds store match into
+            # is_valid, but re-assert it here at the money boundary. The
+            # validator always echoes store_id for a real settlement, so a
+            # populated-but-wrong store fails fast; a missing one falls through.
+            and (
+                not verdict.store_id or verdict.store_id == settings.sslcommerz_store_id
+            )
         ):
             logger.error(
                 "IPN mismatch for %s: tran=%s gross=%s cur=%s (row gross=%s)",
@@ -332,6 +371,28 @@ class DonationService:
         await self.repo.commit()
         await self.repo.refresh(donation)
 
+        # The authoritative money event — log it at the moment it commits so a
+        # completion is reconcilable from logs (gross/fee/net, gateway refs,
+        # receipt number), not just inferred from a generic 200.
+        logger.info(
+            "donation completed",
+            extra={
+                "event": "donation_completed",
+                "donation_id": str(donation.donation_id),
+                "user_id": str(donation.user_id),
+                "masjid_id": str(donation.masjid_id),
+                "campaign_id": str(donation.campaign_id)
+                if donation.campaign_id
+                else None,
+                "gross": str(donation.gross_amount),
+                "fee": str(donation.fee_amount),
+                "net": str(donation.net_amount),
+                "val_id": val_id,
+                "bank_tran_id": donation.gateway_bank_tran_id,
+                "receipt_number": donation.receipt_number,
+            },
+        )
+
         await self._post_completion_effects(donation)
         return donation
 
@@ -344,22 +405,45 @@ class DonationService:
         donation.status = DonationStatus.FAILED.value
         await self.repo.commit()
         await self.repo.refresh(donation)
-        if reason:
-            logger.info("Donation %s failed: %s", donation.donation_id, reason)
+        logger.info(
+            "donation failed",
+            extra={
+                "event": "donation_failed",
+                "donation_id": str(donation.donation_id),
+                "masjid_id": str(donation.masjid_id),
+                "gross": str(donation.gross_amount),
+                "reason": reason or None,
+            },
+        )
         return donation
 
     # ── Refund (→ REFUNDED, admin only) ──────────────────────────────────────
 
-    async def refund(self, donation: Donation, reason: str = "Refund") -> Donation:
+    async def refund(
+        self,
+        donation_id: uuid.UUID,
+        reason: str = "Refund",
+        *,
+        actor: CurrentUser | None = None,
+        ip_address: str | None = None,
+    ) -> Donation:
         """COMPLETED → REFUNDED. Triggers the gateway refund (when a bank
         transaction id is on file), then in one transaction marks the donation
         refunded and reverses its campaign counter. The masjid balance may go
         negative by construction — already-disbursed funds must not block making
         a donor whole; the negative offsets future giving.
+
+        The row is held under ``FOR UPDATE`` across the gateway call so two
+        concurrent admin refunds can't both fire the reversal — the loser blocks,
+        then sees REFUNDED and 409s. Refunds are a rare, admin-only action, so
+        (unlike the IPN hot path) this brief lock-across-I/O is an acceptable
+        trade for that serialisation. Gateway-first ordering means a gateway
+        failure leaves the row COMPLETED (safe to retry); the residual window —
+        gateway accepted but the commit then fails — is reconciled out of band.
         """
         # Lock the row so two concurrent admin refunds can't both fire the gateway
         # refund or double-reverse the campaign counter.
-        donation = await self.repo.get_for_update(donation.donation_id)
+        donation = await self.repo.get_for_update(donation_id)
         if donation is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Donation not found"
@@ -389,9 +473,39 @@ class DonationService:
             await self.repo.bump_campaign_raised(
                 donation.campaign_id, -donation.gross_amount
             )
+        # Append-only audit trail for the money reversal (who/what/why), flushed
+        # in the same transaction as the status flip so they commit atomically.
+        if actor is not None:
+            await self.audit.log(
+                admin_id=actor.user_id,
+                admin_email=actor.email,
+                admin_role=actor.role,
+                action="refund_donation",
+                target_entity="donation",
+                target_id=donation.donation_id,
+                ip_address=ip_address,
+                details={
+                    "reason": reason,
+                    "gross_amount": str(donation.gross_amount),
+                    "masjid_id": str(donation.masjid_id),
+                    "campaign_id": str(donation.campaign_id)
+                    if donation.campaign_id
+                    else None,
+                },
+            )
         await self.repo.commit()
         await self.repo.refresh(donation)
-        logger.info("Donation %s refunded: %s", donation.donation_id, reason)
+        logger.info(
+            "donation refunded",
+            extra={
+                "event": "donation_refunded",
+                "donation_id": str(donation.donation_id),
+                "masjid_id": str(donation.masjid_id),
+                "gross": str(donation.gross_amount),
+                "reason": reason,
+                "actor_id": str(actor.user_id) if actor else None,
+            },
+        )
         return donation
 
     # ── Balance & disbursements (derived ledger) ──────────────────────────────
@@ -414,8 +528,14 @@ class DonationService:
         recorded_by_id: uuid.UUID,
         reference: str | None = None,
         notes: str | None = None,
+        actor: CurrentUser | None = None,
+        ip_address: str | None = None,
     ) -> Disbursement:
-        """Record a manual payout against a masjid's balance (no payout API)."""
+        """Record a manual payout against a masjid's balance (no payout API).
+
+        This is money LEAVING the platform, so it is both structured-logged and
+        written to the append-only audit trail (when an admin actor is supplied).
+        """
         amount = Decimal(amount).quantize(_TWO_PLACES)
         if amount <= 0:
             raise HTTPException(
@@ -436,9 +556,36 @@ class DonationService:
             recorded_by_id=recorded_by_id,
             notes=notes,
         )
-        await self.disbursement_repo.add(disbursement)
+        await self.disbursement_repo.add(disbursement)  # flush → disbursement_id
+        if actor is not None:
+            await self.audit.log(
+                admin_id=actor.user_id,
+                admin_email=actor.email,
+                admin_role=actor.role,
+                action="record_disbursement",
+                target_entity="disbursement",
+                target_id=disbursement.disbursement_id,
+                ip_address=ip_address,
+                details={
+                    "masjid_id": str(masjid_id),
+                    "amount": str(amount),
+                    "method": method,
+                    "reference": reference,
+                },
+            )
         await self.disbursement_repo.commit()
         await self.disbursement_repo.refresh(disbursement)
+        logger.info(
+            "disbursement recorded",
+            extra={
+                "event": "disbursement_recorded",
+                "disbursement_id": str(disbursement.disbursement_id),
+                "masjid_id": str(masjid_id),
+                "amount": str(amount),
+                "method": method,
+                "actor_id": str(actor.user_id) if actor else str(recorded_by_id),
+            },
+        )
         return disbursement
 
     # ── Dashboard reads (donor-facing) ────────────────────────────────────────
@@ -595,14 +742,18 @@ class DonationService:
         return BalanceListResponse(items=items)
 
     async def refund_by_id(
-        self, donation_id: uuid.UUID, reason: str
+        self,
+        donation_id: uuid.UUID,
+        reason: str,
+        *,
+        actor: CurrentUser | None = None,
+        ip_address: str | None = None,
     ) -> DonationStatusResponse:
-        donation = await self.repo.get_by_id(donation_id)
-        if donation is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Donation not found"
-            )
-        await self.refund(donation, reason)
+        # refund() does the locked read + 404/409 itself; a pre-read here would
+        # open a transaction held across the gateway call for nothing.
+        donation = await self.refund(
+            donation_id, reason, actor=actor, ip_address=ip_address
+        )
         return _to_status_response(donation)
 
     # ── Post-commit side effects (best-effort) ────────────────────────────────
@@ -613,12 +764,18 @@ class DonationService:
         Every effect is best-effort and isolated: a side-effect failure must
         never undo a completed, money-moving donation.
         """
+        # Each effect is isolated AND the shared session is reset on failure: a
+        # raised effect leaves the session in an aborted-transaction state, so we
+        # roll back in the handler. Without it the *next* effect would fail
+        # spuriously with PendingRollbackError and a single hiccup would silently
+        # disable the rest of the fan-out.
         try:
             await self._send_confirmation(donation)
         except Exception:
             logger.exception(
                 "donation %s: confirmation notify failed", donation.donation_id
             )
+            await self.db.rollback()
         try:
             # Import here to avoid an import cycle (gamification imports the
             # donation repository for the giving-months counter).
@@ -627,10 +784,12 @@ class DonationService:
             await GamificationService(self.db).reevaluate_badges(donation.user_id)
         except Exception:
             logger.exception("donation %s: badge re-eval failed", donation.donation_id)
+            await self.db.rollback()
         try:
             await self._maybe_campaign_milestone(donation)
         except Exception:
             logger.exception("donation %s: milestone push failed", donation.donation_id)
+            await self.db.rollback()
 
     async def _maybe_campaign_milestone(self, donation: Donation) -> None:
         """Fire CAMPAIGN_MILESTONE to every donor of the campaign, exactly once —
