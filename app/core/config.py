@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     # platform-settings flag.
     NGO_NAME: str = "MasjidKoi Foundation"
     NGO_REGISTRATION_NUMBER: str = ""
+    # Optional issuer contact, printed on the receipt header/footer. Each line
+    # renders only when set, so receipts show real details and never placeholders.
+    NGO_CONTACT_EMAIL: str = ""
+    NGO_WEBSITE: str = ""
+    NGO_ADDRESS: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
