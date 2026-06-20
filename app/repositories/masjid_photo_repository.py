@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 
 from app.models.enums import PhotoModerationStatus, PhotoSource
 from app.models.masjid import MasjidPhoto
@@ -162,8 +162,14 @@ class MasjidPhotoRepository(BaseRepository[MasjidPhoto]):
         status: str | None,
         offset: int,
         limit: int,
+        ngo_overdue_before: datetime | None = None,
     ) -> tuple[list[MasjidPhoto], int]:
-        """Moderation queue for a masjid (any/filtered community status)."""
+        """Moderation queue for a masjid (any/filtered community status).
+
+        ``ngo_overdue_before`` restricts the queue to the NGO-visible slice of a
+        *claimed* masjid (Gap #10): pending rows only when overdue past the SLA,
+        plus all resolved history. Left unset for the masjid admin's own queue.
+        """
         base = (
             select(MasjidPhoto)
             .where(MasjidPhoto.masjid_id == masjid_id)
@@ -171,6 +177,13 @@ class MasjidPhotoRepository(BaseRepository[MasjidPhoto]):
         )
         if status:
             base = base.where(MasjidPhoto.status == status)
+        if ngo_overdue_before is not None:
+            base = base.where(
+                or_(
+                    MasjidPhoto.status != PhotoModerationStatus.PENDING,
+                    MasjidPhoto.created_at <= ngo_overdue_before,
+                )
+            )
         total: int = (
             await self.db.execute(select(func.count()).select_from(base.subquery()))
         ).scalar_one()

@@ -70,3 +70,18 @@ class CoAdminInviteRepository(BaseRepository[MasjidCoAdminInvite]):
             )
         )
         return result.scalar_one_or_none()
+
+    async def masjid_has_claimed_admin(self, masjid_id: uuid.UUID) -> bool:
+        """True if the masjid has a claimed admin.
+
+        An *Accepted* co-admin invite is the only local signal that a masjid_admin
+        account is bound to this masjid (admins live in GoTrue, not a local table).
+        Backs the moderation-routing predicate (Gap #10).
+        """
+        result = await self.db.execute(
+            select(MasjidCoAdminInvite.invite_id)
+            .where(MasjidCoAdminInvite.masjid_id == masjid_id)
+            .where(MasjidCoAdminInvite.status == "Accepted")
+            .limit(1)
+        )
+        return result.first() is not None

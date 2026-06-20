@@ -10,6 +10,7 @@ from app.core.security import CurrentUser
 from app.models.enums import PhotoModerationStatus, PhotoSource
 from app.models.masjid import MasjidPhoto
 from app.repositories.audit_log_repository import AuditLogRepository
+from app.repositories.co_admin_invite_repository import CoAdminInviteRepository
 from app.repositories.masjid_photo_repository import MasjidPhotoRepository
 from app.repositories.masjid_repository import MasjidRepository
 from app.schemas.community_photo import (
@@ -19,6 +20,7 @@ from app.schemas.community_photo import (
     CommunityPhotoPublicListResponse,
     CommunityPhotoSubmissionResponse,
 )
+from app.services.moderation_routing import can_moderate, ngo_pending_cutoff
 from app.services.storage import StorageService
 
 logger = logging.getLogger(__name__)
@@ -39,20 +41,43 @@ class CommunityPhotoService:
     def __init__(self, db: AsyncSession) -> None:
         self.repo = MasjidPhotoRepository(db)
         self.masjid_repo = MasjidRepository(db)
+        self.co_admin = CoAdminInviteRepository(db)
         self.audit = AuditLogRepository(db)
 
-    # ── Internal ─────────────────────────────────────────────────────────────
+    # ── Internal: moderation routing (Gap #10, shared with masjid Q&A) ───────
 
-    def _check_moderation_scope(self, user: CurrentUser, masjid_id: uuid.UUID) -> None:
-        # TODO(#10): replace with the shared moderation-routing predicate (route to
-        # masjid admin's queue when claimed, else NGO central; 7-day shared
-        # visibility). For now: platform admin, or the masjid's own admin.
+    async def _ngo_cutoff_for_list(
+        self, user: CurrentUser, masjid_id: uuid.UUID
+    ) -> datetime | None:
+        """Authorise the caller for this masjid's moderation queue and return the
+        NGO overdue-cutoff to apply (None = unrestricted full queue)."""
         if user.is_platform_admin:
-            return
+            # Claimed masjid → the NGO sees only the overdue/resolved slice.
+            # Unclaimed → the NGO owns the whole queue.
+            if await self.co_admin.masjid_has_claimed_admin(masjid_id):
+                return ngo_pending_cutoff(datetime.now(timezone.utc))
+            return None
         if user.masjid_id != masjid_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Access restricted to your own masjid",
+            )
+        return None
+
+    async def _authorize_action(self, user: CurrentUser, photo: MasjidPhoto) -> None:
+        """Authorise a moderation action on one item via the shared predicate."""
+        has_claimed = await self.co_admin.masjid_has_claimed_admin(photo.masjid_id)
+        if not can_moderate(
+            is_platform_admin=user.is_platform_admin,
+            user_masjid_id=user.masjid_id,
+            item_masjid_id=photo.masjid_id,
+            masjid_has_claimed_admin=has_claimed,
+            pending_since=photo.created_at,
+            now=datetime.now(timezone.utc),
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to moderate this photo",
             )
 
     async def _get_community_or_404(self, photo_id: uuid.UUID) -> MasjidPhoto:
@@ -186,12 +211,13 @@ class CommunityPhotoService:
         page: int,
         page_size: int,
     ) -> CommunityPhotoModerationListResponse:
-        self._check_moderation_scope(user, masjid_id)
+        ngo_overdue_before = await self._ngo_cutoff_for_list(user, masjid_id)
         rows, total = await self.repo.list_community_for_masjid_moderation(
             masjid_id,
             status=status_filter,
             offset=(page - 1) * page_size,
             limit=page_size,
+            ngo_overdue_before=ngo_overdue_before,
         )
         return CommunityPhotoModerationListResponse(
             items=[CommunityPhotoModerationResponse.model_validate(r) for r in rows],
@@ -222,7 +248,7 @@ class CommunityPhotoService:
         action: str,
     ) -> CommunityPhotoModerationResponse:
         photo = await self._get_community_or_404(photo_id)
-        self._check_moderation_scope(user, photo.masjid_id)
+        await self._authorize_action(user, photo)
         if photo.status != PhotoModerationStatus.PENDING:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
