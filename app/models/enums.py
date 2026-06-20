@@ -124,18 +124,22 @@ class DevicePlatform(StrEnum):
 class PushMessageType(StrEnum):
     """Stable message-type discriminator the mobile PushLink routes on.
 
-    Types accumulate across PRDs; only the PRD 07 community types are wired
-    today. The rest are reserved so the discriminator contract is stable.
+    Types accumulate across PRDs. Wired and fired today: the PRD 07 community
+    types, the PRD 05 donation types, and the PRD 02/04 approval types
+    (submission / photo / Q&A). Still reserved (defined, no caller yet): the
+    PRD 03 prayer-times types — TIME_CHANGE, HIJRI_OFFSET, PLATFORM_PUSH.
+    Note: all delivery currently goes through the no-op LoggingTransport until a
+    real push transport (Expo / FCM) and credentials land.
     """
 
     # PRD 07 — community feed
     ANNOUNCEMENT_INSTANT = "announcement_instant"
     DAILY_DIGEST = "daily_digest"
-    # PRD 03 — prayer times (reserved)
+    # PRD 03 — prayer times (reserved — no caller yet)
     TIME_CHANGE = "time_change"
     HIJRI_OFFSET = "hijri_offset"
     PLATFORM_PUSH = "platform_push"
-    # PRD 02 / 04 (reserved)
+    # PRD 02 / 04 — submission, photo, and Q&A approval notifications
     SUBMISSION_APPROVED = "submission_approved"
     PHOTO_APPROVED = "photo_approved"
     QNA_ANSWERED = "qna_answered"
