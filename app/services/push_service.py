@@ -19,13 +19,16 @@ import logging
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.enums import PushMessageType
 from app.repositories.device_token_repository import DeviceTokenRepository
+
+if TYPE_CHECKING:
+    from app.models.device_token import DeviceToken
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +118,35 @@ class PushService:
         if not user_ids:
             return 0
         tokens = await self.repo.list_tokens_for_users(user_ids)
+        return await self._dispatch(tokens, message)
+
+    async def notify_all(self, message: PushMessage) -> int:
+        """Broadcast to every registered device — platform-wide announcements
+        (PLATFORM_PUSH) and the Hijri-offset change ping (HIJRI_OFFSET). Same
+        best-effort contract as ``notify_users``: never raises."""
+        tokens = await self.repo.list_all_tokens()
+        return await self._dispatch(tokens, message)
+
+    async def broadcast_platform_push(
+        self, title: str, body: str, data: dict | None = None
+    ) -> int:
+        """Build a ``PLATFORM_PUSH`` message and broadcast it to all devices.
+        Thin wrapper so the admin route stays HTTP-only."""
+        return await self.notify_all(
+            PushMessage(
+                message_type=PushMessageType.PLATFORM_PUSH,
+                title=title,
+                body=body,
+                data=data or {},
+            )
+        )
+
+    async def _dispatch(
+        self, tokens: Sequence["DeviceToken"], message: PushMessage
+    ) -> int:
+        """Send ``message`` to already-resolved device tokens and reap any the
+        provider reports dead. Shared by ``notify_users`` and ``notify_all`` —
+        never raises (push is best-effort)."""
         if not tokens:
             return 0
         try:
