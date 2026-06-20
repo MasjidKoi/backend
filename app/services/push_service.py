@@ -7,11 +7,12 @@ announcement pushes and the daily digest. It owns:
 - resolving a set of user_ids to their registered device tokens,
 - dispatching a typed message to those devices through a pluggable transport.
 
-The actual wire transport (Expo Push / bare FCM) is deferred — Firebase/APNs
-credentials don't exist in this environment yet (gap #6's open dependency). The
-default ``LoggingTransport`` records exactly what *would* be sent, which keeps
-the routing/bucketing logic (#15/#16) real and testable today. Swapping in a
-real transport later is a one-line change in ``get_push_service``.
+The wire transport is selected by config: with ``PUSH_ENABLED`` false (dev/CI)
+the default ``LoggingTransport`` records exactly what *would* be sent, keeping
+the routing/bucketing logic real and testable without a provider; with it true
+``ExpoPushTransport`` delivers for real. Because every caller constructs
+``PushService(db)`` with no explicit transport, that single config switch reaches
+all push-firing paths at once.
 """
 
 import logging
@@ -22,6 +23,7 @@ from typing import Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.enums import PushMessageType
 from app.repositories.device_token_repository import DeviceTokenRepository
 
@@ -40,19 +42,29 @@ class PushMessage:
     data: dict = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class SendResult:
+    """Outcome of one fan-out: how many devices accepted, plus any tokens the
+    provider reported as permanently dead (``DeviceNotRegistered``) so the caller
+    can reap them from the registry."""
+
+    accepted: int
+    invalid_tokens: tuple[str, ...] = ()
+
+
 class PushTransport(Protocol):
-    async def send(self, tokens: Sequence[str], message: PushMessage) -> int:
-        """Deliver ``message`` to ``tokens``; return the number accepted."""
+    async def send(self, tokens: Sequence[str], message: PushMessage) -> SendResult:
+        """Deliver ``message`` to ``tokens``; report accepted count + dead tokens."""
         ...
 
 
 class LoggingTransport:
-    """No-op transport used until FCM/APNs credentials land. Logs the intended
+    """No-op transport used when ``PUSH_ENABLED`` is false. Logs the intended
     fan-out so behaviour is observable end-to-end without a real provider."""
 
-    async def send(self, tokens: Sequence[str], message: PushMessage) -> int:
+    async def send(self, tokens: Sequence[str], message: PushMessage) -> SendResult:
         if not tokens:
-            return 0
+            return SendResult(accepted=0)
         logger.info(
             "PUSH %s → %d device(s): %s | data=%s",
             message.message_type.value,
@@ -60,7 +72,17 @@ class LoggingTransport:
             message.title,
             message.data,
         )
-        return len(tokens)
+        return SendResult(accepted=len(tokens))
+
+
+def _build_default_transport() -> PushTransport:
+    """Select the transport from config. ``ExpoPushTransport`` is imported lazily
+    so the ``expo_push_transport → push_service`` import does not cycle."""
+    if settings.PUSH_ENABLED:
+        from app.services.expo_push_transport import ExpoPushTransport
+
+        return ExpoPushTransport(access_token=settings.expo_access_token or None)
+    return LoggingTransport()
 
 
 class PushService:
@@ -68,7 +90,7 @@ class PushService:
         self, db: AsyncSession, transport: PushTransport | None = None
     ) -> None:
         self.repo = DeviceTokenRepository(db)
-        self.transport: PushTransport = transport or LoggingTransport()
+        self.transport: PushTransport = transport or _build_default_transport()
 
     # ── Token registry ──────────────────────────────────────────────────────
 
@@ -96,7 +118,7 @@ class PushService:
         if not tokens:
             return 0
         try:
-            return await self.transport.send([t.token for t in tokens], message)
+            result = await self.transport.send([t.token for t in tokens], message)
         except Exception:
             logger.exception(
                 "Push dispatch failed for %d device(s), type=%s",
@@ -104,3 +126,16 @@ class PushService:
                 message.message_type.value,
             )
             return 0
+        if result.invalid_tokens:
+            # Reap permanently-dead tokens (e.g. app uninstall, which never hits
+            # the logout prune path). Best-effort — never let registry hygiene
+            # break the fan-out's caller.
+            try:
+                await self.repo.delete_tokens(result.invalid_tokens)
+                await self.repo.commit()
+            except Exception:
+                logger.exception(
+                    "Failed to prune %d dead device token(s)",
+                    len(result.invalid_tokens),
+                )
+        return result.accepted

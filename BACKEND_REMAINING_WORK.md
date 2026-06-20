@@ -3,15 +3,20 @@
 Gap analysis of the 8 mobile PRDs (`../mobile/docs/prds/`) against the actual backend
 (`app/`), verified file-by-file on 2026-06-20.
 
-> **Update 2026-06-20 — quick fixes landed.** Review self-delete (PRD 07 story 45) is
-> done; the three contribution pushes (submission/photo/Q&A approval) are now **wired and
-> firing** through `PushService` — they deliver for real the moment a push transport lands
-> (see #0). Two stale docstrings corrected. Details struck through below.
+> **Update 2026-06-20 — push delivery transport LANDED (#0 done).** The real Expo Push
+> transport (`app/services/expo_push_transport.py`) is implemented, tested, and wired.
+> Flipping `PUSH_ENABLED=true` (access token already in `.env`) routes **every** already-wired
+> push — announcement-instant, daily digest, all four donation pushes, and submission/photo/Q&A
+> approvals — to real devices via Expo. Dead tokens (`DeviceNotRegistered`) are reaped from the
+> registry. Earlier this pass: review self-delete (PRD 07 story 45) + the three contribution
+> pushes were wired; two stale docstrings corrected. Details struck through below.
 
 **Headline:** the backend is ~90% built to these PRDs. Auth (01), the full donation
 subsystem (05), profile/photos/Q&A (04), community/feed (07), and gamification core (08)
-are implemented *with migrations and tests*. What remains is concentrated in **the push
-delivery layer** and a few discrete features. PRD 09 needs **zero** backend work.
+are implemented *with migrations and tests* — and as of this pass push **delivers for real**
+(Expo transport landed, #0 done). What remains is the **PRD 03 prayer-times push event layer**
+(callers + Hijri offset + platform broadcast) and a few discrete features. PRD 09 needs
+**zero** backend work.
 
 ---
 
@@ -21,8 +26,8 @@ delivery layer** and a few discrete features. PRD 09 needs **zero** backend work
 |---|---|---|---|
 | 01 | Onboarding & Auth (email OTP) | ✅ **Done** | Nothing (TOTP/aal2 intentionally off, out of scope) |
 | 02 | Discovery & Map | 🟡 Mostly done | ~~Submission-approval push~~ ✅ wired; share/OG page + `.well-known` files |
-| 03 | Prayer Times & **Push** | 🟠 **Largest gap** | Time-change ping + audience resolution; Hijri offset (col + public config + ping); platform-wide push |
-| 04 | Profile / Photos / Q&A | ✅ **Done** | ~~Photo + Q&A approval pushes~~ ✅ wired (deliver once transport lands) |
+| 03 | Prayer Times & **Push** | 🟠 **Largest gap** | Push *transport* ✅ done (#0); still: time-change ping + audience resolution; Hijri offset (col + public config + ping); platform-wide push |
+| 04 | Profile / Photos / Q&A | ✅ **Done** | ~~Photo + Q&A approval pushes~~ ✅ wired **& delivering** (Expo) |
 | 05 | Donations & Dashboard | ✅ **Done** | Only NGO config (SSLCommerz creds, NBR flag) — not code |
 | 07 | Community (feed/reviews) | ✅ **Done** | ~~Review self-delete~~ ✅ done; (optional) drop redundant create-review route |
 | 08 | Gamification | 🟡 Mostly done | **Goals + templates (whole subsystem)**; Community Pillar reports input (photos ✅) |
@@ -30,20 +35,25 @@ delivery layer** and a few discrete features. PRD 09 needs **zero** backend work
 
 ---
 
-## 🔑 #0 — The keystone blocker: push delivery transport (cross-cutting)
+## ✅ #0 — The keystone blocker: push delivery transport — DONE
 
-`app/services/push_service.py` ships a **`LoggingTransport` — a no-op that only logs the
-intended fan-out**. There is no real FCM / APNs / Expo sender anywhere in the repo.
+`app/services/expo_push_transport.py` implements a real `PushTransport` against the **Expo
+Push Service** (matches the mobile `expo-notifications` choice; the device tokens already
+registered are `ExponentPushToken[…]`). It batches ≤100 messages/request, sends the optional
+`Authorization: Bearer` enhanced-security header, parses tickets, and surfaces
+`DeviceNotRegistered` tokens — which `PushService.notify_users` then reaps from the registry.
 
-Consequence: the pushes that *are* already wired and firing — **announcement-instant,
-daily-digest, and all four donation pushes** (donation-confirmed, payment-recovery,
-recurring-nudge, campaign-milestone) — currently deliver to a log line, not a phone. And
-every push gap below is moot until this lands.
+Transport selection is config-driven (`PUSH_ENABLED`): false → the no-op `LoggingTransport`
+(dev/CI); true → `ExpoPushTransport`. Because every caller constructs `PushService(db)` with
+no explicit transport, that single switch reaches **all** push-firing paths at once —
+**announcement-instant, daily-digest, all four donation pushes** (donation-confirmed,
+payment-recovery, recurring-nudge, campaign-milestone), **and submission/photo/Q&A approvals**.
+The Expo access token is in `.env` (`PUSH_ENABLED=true`). Tests pin the flag off in
+`conftest.py` so the suite never hits the network; `tests/test_expo_push_transport.py` covers
+the wire via `httpx.MockTransport`.
 
-**What's left:** implement a real `PushTransport` (Expo Push Service matches the mobile
-`expo-notifications` choice, or bare FCM via `firebase-admin`), wire credentials
-(Firebase project + APNs config, or an Expo access token). External dependency flagged in
-PRD 03's notes — none of this exists yet.
+**Remaining (optional follow-up):** full dead-token reaping via the Expo `/getReceipts` poll
+~15 min after send (v1 prunes only the synchronous ticket-level `DeviceNotRegistered`).
 
 ---
 
@@ -88,7 +98,7 @@ All three approval pushes now construct a `PushMessage` and call
 - **PRD 04 `QNA_ANSWERED`** — fired in `masjid_question_service.answer()` to
   `question.asker_user_id`, deep-linking to the answer.
 
-They log via `LoggingTransport` today and deliver to devices once a real transport (#0) lands.
+They now deliver to real devices via the Expo transport (#0 done) whenever `PUSH_ENABLED=true`.
 
 ---
 
@@ -146,7 +156,9 @@ paths)**, **digest scheduler (registered, hourly Dhaka bucketing)**, RSVP + atte
 
 - **SSLCommerz** sandbox + production credentials (`SSLCOMMERZ_*`) — code reads them already.
 - **NBR tax flag** — flip `tax_deductible_receipts_enabled` once NGO approval confirmed.
-- **Firebase project / APNs config / Expo token** — required for #0 (real push delivery).
+- ✅ **Expo access token** — provided and in `.env` (`PUSH_ENABLED=true`); #0 push delivery is
+  live. (No Firebase/APNs plumbing needed on the backend — Expo relays to APNs/FCM. For real
+  Android/iOS *device* delivery the mobile/EAS side still uploads FCM creds + an APNs key.)
 - **Production domain** — required for #3 (share page + universal/app links).
 
 ## Cosmetic
@@ -159,11 +171,12 @@ paths)**, **digest scheduler (registered, hourly Dhaka bucketing)**, RSVP + atte
 
 ## Suggested order
 
-1. **Real push transport + credentials** (#0) — unblocks everything push-shaped, incl.
-   the already-wired announcement/digest/donation **and now submission/photo/Q&A** pushes.
+1. ✅ **Real push transport + credentials** (#0) — DONE. Expo transport landed and wired;
+   all already-wired pushes (announcement/digest/donation + submission/photo/Q&A) now deliver.
 2. **PRD 03 event layer** (#1) — time-change ping + audience resolution + Hijri offset +
-   platform push (Eid deadline-sensitive).
+   platform push (Eid deadline-sensitive). ← now the top remaining push work.
 3. **PRD 02 share infra** (#3) — when a domain is available.
 4. **PRD 08 goals** (#4) — aligned to the R2 / pre-Ramadan window.
 
-✅ Done this pass: contribution pushes (#2), review self-delete (#5), stale docstrings.
+✅ Done this pass: **push delivery transport (#0)**, contribution pushes (#2), review
+self-delete (#5), stale docstrings.

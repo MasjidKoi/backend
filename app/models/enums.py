@@ -128,8 +128,8 @@ class PushMessageType(StrEnum):
     types, the PRD 05 donation types, and the PRD 02/04 approval types
     (submission / photo / Q&A). Still reserved (defined, no caller yet): the
     PRD 03 prayer-times types — TIME_CHANGE, HIJRI_OFFSET, PLATFORM_PUSH.
-    Note: all delivery currently goes through the no-op LoggingTransport until a
-    real push transport (Expo / FCM) and credentials land.
+    Delivery is real: with PUSH_ENABLED=true these dispatch through
+    ExpoPushTransport to devices; with it false they log via LoggingTransport.
     """
 
     # PRD 07 — community feed

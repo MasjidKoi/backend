@@ -56,6 +56,14 @@ class Settings(BaseSettings):
     # ── Redis ─────────────────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://redis:6379/0"
 
+    # ── Expo Push (PRD 03 push delivery) ────────────────────────────────────────────
+    # PUSH_ENABLED=false keeps the no-op LoggingTransport (dev/CI); true swaps in the
+    # real Expo transport for every push-firing path. The access token is optional —
+    # only required once "Enhanced Security for Push Notifications" is enabled on the
+    # Expo project (expo.dev → Settings → Access Tokens). Never hard-code it.
+    PUSH_ENABLED: bool = False
+    EXPO_ACCESS_TOKEN: SecretStr = SecretStr("")  # type: ignore[assignment]
+
     # ── SSLCommerz payment gateway (PRD 05) ─────────────────────────────────────────
     # The NGO is the single merchant of record — one pooled account, per-masjid
     # attribution in our ledger. Sandbox by default; production overrides the
@@ -128,6 +136,10 @@ class Settings(BaseSettings):
     @property
     def public_api_base_url(self) -> str:
         return str(self.PUBLIC_API_BASE_URL).rstrip("/")
+
+    @property
+    def expo_access_token(self) -> str:
+        return self.EXPO_ACCESS_TOKEN.get_secret_value()
 
 
 settings = Settings()

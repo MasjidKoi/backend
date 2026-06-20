@@ -46,6 +46,18 @@ class DeviceTokenRepository(BaseRepository[DeviceToken]):
         )
         await self.db.flush()
 
+    async def delete_tokens(self, tokens: Sequence[str]) -> int:
+        """Bulk-prune dead tokens the push provider rejected as
+        ``DeviceNotRegistered``. Owner-agnostic — such a token is globally dead,
+        regardless of which user it was last registered to."""
+        if not tokens:
+            return 0
+        result = await self.db.execute(
+            delete(DeviceToken).where(DeviceToken.token.in_(list(tokens)))
+        )
+        await self.db.flush()
+        return result.rowcount or 0
+
     async def list_tokens_for_users(
         self, user_ids: Sequence[uuid.UUID]
     ) -> list[DeviceToken]:
