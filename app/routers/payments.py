@@ -83,20 +83,49 @@ async def sslcommerz_ipn(
     )
 
 
-@router.get(
+@router.api_route(
     "/redirect/{outcome}",
-    summary="Post-payment redirect → deep link into the app (navigation only)",
+    methods=["GET", "POST"],
+    summary="Post-payment redirect → deep link into the app",
 )
-async def sslcommerz_redirect(outcome: str, donation_id: str = "") -> RedirectResponse:
+async def sslcommerz_redirect(
+    outcome: str,
+    request: Request,
+    donation_id: str = "",
+    service: DonationService = Depends(get_donation_service),
+) -> RedirectResponse:
+    """SSLCommerz redirects here by **POST** (form-encoded transaction fields) —
+    hence GET and POST are both accepted (a GET-only route 405s the gateway).
+
+    The IPN remains the authoritative completer, but on a success POST we also
+    complete idempotently from the carried val_id. This is NOT trusting the
+    client: complete_from_ipn re-validates the val_id against the SSLCommerz
+    validation API exactly as the IPN path does. It makes success robust when
+    the IPN is delayed or the gateway's IPN listener isn't configured; the IPN
+    still covers the case where the user closes the browser before redirect.
+    """
     outcome = outcome if outcome in _OUTCOMES else "fail"
-    # Whitelist the outcome AND validate donation_id as a UUID so a crafted value
-    # can't inject extra path/query segments into the deep-link Location header.
+    tran_id = donation_id
+    if request.method == "POST":
+        form = await request.form()
+        val_id = str(form.get("val_id", "") or "")
+        tran_id = str(form.get("tran_id", "") or donation_id or "")
+        if outcome == "success" and val_id and tran_id:
+            try:
+                await service.complete_from_ipn(val_id=val_id, tran_id=tran_id)
+            except Exception:  # noqa: BLE001
+                # Best-effort — the server-to-server IPN is the backstop.
+                logger.warning(
+                    "redirect-path completion deferred to IPN for tran=%s", tran_id
+                )
+
+    # Validate the id as a UUID so a crafted value can't inject extra path/query
+    # segments into the deep-link Location header.
     try:
-        safe_id = str(uuid.UUID(donation_id)) if donation_id else ""
+        safe_id = str(uuid.UUID(tran_id)) if tran_id else ""
     except ValueError:
         safe_id = ""
     scheme = settings.APP_DEEP_LINK_SCHEME
     target = f"{scheme}://donation/{safe_id}?status={outcome}"
-    # 303 so the browser issues a GET to the deep link regardless of the gateway's
-    # POST-back method.
+    # 303 so the browser issues a GET to the deep link regardless of the inbound method.
     return RedirectResponse(url=target, status_code=status.HTTP_303_SEE_OTHER)
