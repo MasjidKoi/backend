@@ -16,6 +16,7 @@ from app.dependencies.announcement import get_announcement_service
 from app.dependencies.auth import require_platform_admin
 from app.dependencies.masjid import get_masjid_service
 from app.dependencies.platform_settings import get_platform_settings_service
+from app.dependencies.push import get_push_service
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.masjid_campaign_repository import MasjidCampaignRepository
 from app.repositories.user_profile_repository import UserProfileRepository
@@ -34,10 +35,12 @@ from app.schemas.platform_settings import (
     PlatformSettingsResponse,
     PlatformSettingsUpdate,
 )
+from app.schemas.push import BroadcastPushRequest, BroadcastPushResponse
 from app.services.admin_user_service import AdminUserService
 from app.services.announcement_service import AnnouncementService
 from app.services.masjid_service import MasjidService
 from app.services.platform_settings_service import PlatformSettingsService
+from app.services.push_service import PushService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -260,3 +263,23 @@ async def update_settings(
 ) -> PlatformSettingsResponse:
     settings = await service.update(body, user)
     return PlatformSettingsResponse.model_validate(settings)
+
+
+# ── Platform-wide push ──────────────────────────────────────────────────────
+
+
+@router.post(
+    "/broadcast-push",
+    response_model=BroadcastPushResponse,
+    summary="Broadcast a push to every device (platform_admin)",
+)
+async def broadcast_push(
+    body: BroadcastPushRequest,
+    _user: CurrentUser = Depends(require_platform_admin),
+    push: PushService = Depends(get_push_service),
+) -> BroadcastPushResponse:
+    # PRD 03 PLATFORM_PUSH — Eid / Ramadan-start / urgent notices. Best-effort
+    # fan-out to all registered devices (never raises). Audit-logging this
+    # high-impact action is a reasonable follow-up.
+    count = await push.broadcast_platform_push(body.title, body.body, body.data)
+    return BroadcastPushResponse(devices_notified=count)

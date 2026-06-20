@@ -26,6 +26,7 @@ from app.routers import (
     campaigns,
     co_admins,
     community_photos,
+    config,
     donations,
     email_templates,
     events,
@@ -147,6 +148,8 @@ app.include_router(support.admin_router)
 app.include_router(feed.router)
 app.include_router(users.router)
 app.include_router(admin.router)
+# Public, unauthenticated app config (static /app-config segment — no collision).
+app.include_router(config.router)
 # Donations: user dashboard + admin views, and the unauthenticated SSLCommerz
 # IPN/redirect callbacks. Static path segments (/donations, /payments) keep these
 # from colliding with /masjids/{masjid_id} and /admin/* dynamic routes.

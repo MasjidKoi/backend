@@ -1,7 +1,15 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    SmallInteger,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -10,6 +18,12 @@ from app.db.base import Base
 
 class PlatformSettings(Base):
     __tablename__ = "platform_settings"
+    __table_args__ = (
+        CheckConstraint(
+            "hijri_offset_days BETWEEN -2 AND 2",
+            name="ck_platform_settings_hijri_offset",
+        ),
+    )
 
     settings_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -20,6 +34,12 @@ class PlatformSettings(Base):
     )
     default_calc_method: Mapped[str] = mapped_column(
         String(30), nullable=False, default="KARACHI"
+    )
+    # PRD 03 — global Hijri-date display correction (−2…+2 days), applied by
+    # clients on top of the computed Hijri date. Exposed via the public
+    # /app-config endpoint; a change broadcasts a HIJRI_OFFSET push.
+    hijri_offset_days: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="0", default=0
     )
     # FR-T40-137 — Supported countries (ISO 3166-1 alpha-2 codes)
     supported_countries: Mapped[list[str] | None] = mapped_column(

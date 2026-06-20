@@ -67,3 +67,10 @@ class DeviceTokenRepository(BaseRepository[DeviceToken]):
             select(DeviceToken).where(DeviceToken.user_id.in_(list(user_ids)))
         )
         return list(result.scalars().all())
+
+    async def list_all_tokens(self) -> list[DeviceToken]:
+        """Every registered device token — backs the platform-wide broadcast
+        (PLATFORM_PUSH / HIJRI_OFFSET). v1 loads all rows into memory; token
+        pagination / async queueing is a future scale follow-up."""
+        result = await self.db.execute(select(DeviceToken))
+        return list(result.scalars().all())

@@ -88,6 +88,21 @@ class UserMasjidFollowRepository(BaseRepository[UserMasjidFollow]):
         )
         return list(result.scalars().all())
 
+    async def list_user_ids_following_masjid_not_muted(
+        self, masjid_id: uuid.UUID
+    ) -> list[uuid.UUID]:
+        """User ids following a masjid in any non-muted mode (instant + digest)
+        — the audience for prayer-time-change pushes (PRD 03 TIME_CHANGE). Unlike
+        announcements, time changes are time-sensitive and aren't folded into the
+        daily digest, so digest-mode followers are notified directly here."""
+        result = await self.db.execute(
+            select(UserMasjidFollow.user_id).where(
+                UserMasjidFollow.masjid_id == masjid_id,
+                UserMasjidFollow.notification_mode != "mute",
+            )
+        )
+        return list(result.scalars().all())
+
     async def list_digest_masjid_ids_for_user(
         self, user_id: uuid.UUID
     ) -> list[uuid.UUID]:

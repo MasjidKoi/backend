@@ -15,7 +15,7 @@ from geoalchemy2.shape import to_shape
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import CurrentUser
-from app.models.enums import CalculationMethod, Madhab
+from app.models.enums import CalculationMethod, Madhab, PushMessageType
 from app.models.masjid import Masjid
 from app.models.prayer_times import JumahSchedule, PrayerTimeRecord
 from app.repositories.audit_log_repository import AuditLogRepository
@@ -24,6 +24,7 @@ from app.repositories.prayer_time_repository import (
     JumahRepository,
     PrayerTimeRepository,
 )
+from app.repositories.user_masjid_follow_repository import UserMasjidFollowRepository
 from app.schemas.prayer_times import (
     JumahResponse,
     JumahUpdate,
@@ -34,6 +35,7 @@ from app.schemas.prayer_times import (
     _fmt,
 )
 from app.services import prayer_calculator as calc
+from app.services.push_service import PushMessage, PushService
 
 logger = logging.getLogger(__name__)
 
@@ -48,12 +50,42 @@ def _parse_time(s: str | None) -> dt_time | None:
 
 class PrayerTimeService:
     def __init__(self, db: AsyncSession) -> None:
+        self.db = db  # held only to construct the after-commit push fan-out
         self.repo = PrayerTimeRepository(db)
         self.jumah_repo = JumahRepository(db)
         self.masjid_repo = MasjidRepository(db)
         self.audit = AuditLogRepository(db)
 
     # ── Internal helpers ───────────────────────────────────────────────────────
+
+    async def _notify_time_change(
+        self, masjid_id: uuid.UUID, masjid_name: str, *, prayer_date: date | None
+    ) -> None:
+        """Fan out a TIME_CHANGE push to a masjid's non-muted followers after a
+        prayer-time write (PRD 03). Best-effort: ``notify_users`` short-circuits
+        on an empty audience and never raises, so a push failure can't undo the
+        admin write that triggered it.
+
+        Takes only primitives (captured before the commit) so it never touches a
+        possibly-expired ORM object after the commit."""
+        follow_repo = UserMasjidFollowRepository(self.db)
+        user_ids = await follow_repo.list_user_ids_following_masjid_not_muted(masjid_id)
+        await PushService(self.db).notify_users(
+            user_ids,
+            PushMessage(
+                message_type=PushMessageType.TIME_CHANGE,
+                title="Prayer times updated",
+                body=f"{masjid_name} updated its prayer schedule.",
+                data={
+                    "masjid_id": str(masjid_id),
+                    **(
+                        {"date": prayer_date.isoformat()}
+                        if prayer_date is not None
+                        else {}
+                    ),
+                },
+            ),
+        )
 
     async def _get_masjid_or_404(self, masjid_id: uuid.UUID) -> Masjid:
         masjid = await self.masjid_repo.get_by_id(masjid_id)
@@ -253,6 +285,7 @@ class PrayerTimeService:
         """
         self._check_scope(user, masjid_id)
         masjid = await self._get_masjid_or_404(masjid_id)
+        masjid_name = masjid.name  # capture before commit for the TIME_CHANGE push
 
         # Always load (or auto-calculate) the base row first.
         # PostgreSQL enforces NOT NULL on INSERT VALUES even when
@@ -326,6 +359,7 @@ class PrayerTimeService:
             target_id=masjid_id,
         )
         await self.repo.commit()
+        await self._notify_time_change(masjid_id, masjid_name, prayer_date=data.date)
         return self._to_response(record)
 
     async def recalculate(
@@ -341,6 +375,7 @@ class PrayerTimeService:
         """
         self._check_scope(user, masjid_id)
         masjid = await self._get_masjid_or_404(masjid_id)
+        masjid_name = masjid.name  # capture before commit for the TIME_CHANGE push
 
         method = data.calculation_method or CalculationMethod.KARACHI
         madhab = data.madhab or Madhab.HANAFI
@@ -397,6 +432,7 @@ class PrayerTimeService:
             target_id=masjid_id,
         )
         await self.repo.commit()
+        await self._notify_time_change(masjid_id, masjid_name, prayer_date=data.date)
         return self._to_response(record)
 
     async def update_jumah(
@@ -407,7 +443,8 @@ class PrayerTimeService:
     ) -> JumahResponse:
         """PUT /masjids/{id}/jumah — upsert the standing Friday schedule."""
         self._check_scope(user, masjid_id)
-        await self._get_masjid_or_404(masjid_id)
+        masjid = await self._get_masjid_or_404(masjid_id)
+        masjid_name = masjid.name  # capture before commit for the TIME_CHANGE push
 
         fields = {
             k: _parse_time(v) if k.endswith(("azan", "start")) else v
@@ -416,4 +453,6 @@ class PrayerTimeService:
         }
         schedule = await self.jumah_repo.upsert(masjid_id, fields)
         await self.jumah_repo.commit()
+        # Jumu'ah is a standing schedule, not date-bound → no date in the payload.
+        await self._notify_time_change(masjid_id, masjid_name, prayer_date=None)
         return self._to_jumah_response(schedule)
