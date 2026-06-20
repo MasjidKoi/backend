@@ -54,6 +54,52 @@ class UserMasjidFollowRepository(BaseRepository[UserMasjidFollow]):
         )
         return result.all()
 
+    async def set_mode(
+        self, user_id: uuid.UUID, masjid_id: uuid.UUID, mode: str
+    ) -> UserMasjidFollow | None:
+        follow = await self._get(user_id, masjid_id)
+        if follow is None:
+            return None
+        follow.notification_mode = mode
+        await self.db.flush()
+        return follow
+
+    async def list_follows_with_masjid(self, user_id: uuid.UUID) -> list:
+        """(Masjid, notification_mode) for every masjid the user follows — drives
+        the notification-preferences screen. Newest follow first."""
+        result = await self.db.execute(
+            select(Masjid, UserMasjidFollow.notification_mode)
+            .join(UserMasjidFollow, UserMasjidFollow.masjid_id == Masjid.masjid_id)
+            .where(UserMasjidFollow.user_id == user_id)
+            .order_by(UserMasjidFollow.followed_at.desc())
+        )
+        return result.all()
+
+    async def list_user_ids_following_masjid_in_mode(
+        self, masjid_id: uuid.UUID, mode: str
+    ) -> list[uuid.UUID]:
+        """User ids following a masjid in a given notification mode — used by the
+        instant announcement notifier (mode='instant')."""
+        result = await self.db.execute(
+            select(UserMasjidFollow.user_id).where(
+                UserMasjidFollow.masjid_id == masjid_id,
+                UserMasjidFollow.notification_mode == mode,
+            )
+        )
+        return list(result.scalars().all())
+
+    async def list_digest_masjid_ids_for_user(
+        self, user_id: uuid.UUID
+    ) -> list[uuid.UUID]:
+        """Masjid ids the user follows in digest mode — used by the digest job."""
+        result = await self.db.execute(
+            select(UserMasjidFollow.masjid_id).where(
+                UserMasjidFollow.user_id == user_id,
+                UserMasjidFollow.notification_mode == "digest",
+            )
+        )
+        return list(result.scalars().all())
+
     async def _get(
         self, user_id: uuid.UUID, masjid_id: uuid.UUID
     ) -> UserMasjidFollow | None:

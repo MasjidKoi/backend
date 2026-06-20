@@ -21,6 +21,21 @@ class UserJournalRepository(BaseRepository[UserJournalEntry]):
         )
         return result.scalar_one_or_none()
 
+    async def get_day_records(
+        self, user_id: uuid.UUID, since: date | None = None
+    ) -> list[UserJournalEntry]:
+        """Entries ordered by date ascending — the StreakEngine/BadgeEngine fold
+        input. Bounded by ``since`` so a long-lived account stays cheap."""
+        filters = [UserJournalEntry.user_id == user_id]
+        if since is not None:
+            filters.append(UserJournalEntry.entry_date >= since)
+        result = await self.db.execute(
+            select(UserJournalEntry)
+            .where(*filters)
+            .order_by(UserJournalEntry.entry_date.asc())
+        )
+        return list(result.scalars().all())
+
     async def list_by_user(
         self,
         user_id: uuid.UUID,

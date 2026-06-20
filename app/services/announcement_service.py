@@ -1,11 +1,15 @@
+import logging
 import uuid
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import CurrentUser
+from app.models.announcement import Announcement
+from app.models.enums import PushMessageType
 from app.repositories.announcement_repository import AnnouncementRepository
 from app.repositories.masjid_repository import MasjidRepository
+from app.repositories.user_masjid_follow_repository import UserMasjidFollowRepository
 from app.schemas.announcement import (
     AnnouncementCreate,
     AnnouncementListResponse,
@@ -14,10 +18,42 @@ from app.schemas.announcement import (
     AnnouncementUpdate,
     AnnouncementWithMasjidResponse,
 )
+from app.services.push_service import PushMessage, PushService
+
+logger = logging.getLogger(__name__)
+
+
+async def notify_instant_followers(
+    db: AsyncSession, ann: Announcement, push: PushService | None = None
+) -> int:
+    """Fan out an `announcement_instant` push to followers on instant mode.
+
+    Best-effort: a push failure must never roll back the publish. Returns the
+    device count notified (0 if no instant followers / no devices). Reused by
+    both the publish endpoint paths and the scheduled-publish job.
+    """
+    follow_repo = UserMasjidFollowRepository(db)
+    user_ids = await follow_repo.list_user_ids_following_masjid_in_mode(
+        ann.masjid_id, "instant"
+    )
+    if not user_ids:
+        return 0
+    push = push or PushService(db)
+    message = PushMessage(
+        message_type=PushMessageType.ANNOUNCEMENT_INSTANT,
+        title=ann.title,
+        body=ann.body[:140],
+        data={
+            "masjid_id": str(ann.masjid_id),
+            "announcement_id": str(ann.announcement_id),
+        },
+    )
+    return await push.notify_users(user_ids, message)
 
 
 class AnnouncementService:
     def __init__(self, db: AsyncSession) -> None:
+        self.db = db
         self.repo = AnnouncementRepository(db)
         self.masjid_repo = MasjidRepository(db)
 
@@ -146,6 +182,9 @@ class AnnouncementService:
             scheduled_at=data.scheduled_at,
         )
         await self.repo.commit()
+        # Direct-publish path: notify instant-mode followers. Best-effort.
+        if ann.is_published:
+            await notify_instant_followers(self.db, ann)
         return self._to_response(ann)
 
     async def update(
@@ -181,6 +220,8 @@ class AnnouncementService:
         await self.repo.publish(ann)
         await self.repo.commit()
         ann = await self._get_ann_or_404(announcement_id, masjid_id)
+        # Draft-then-publish path: notify instant-mode followers. Best-effort.
+        await notify_instant_followers(self.db, ann)
         return self._to_response(ann)
 
     async def delete(

@@ -100,6 +100,47 @@ class AnswerAuthorRole(StrEnum):
     COMMUNITY = "community"
 
 
+class NotificationMode(StrEnum):
+    """Per-follow announcement notification mode (PRD 07).
+
+    Lives on the follow relationship because its lifetime is exactly the
+    follow's lifetime. DIGEST is the default for new and backfilled rows.
+    MUTE silences both push paths but never removes the masjid from the feed.
+    """
+
+    DIGEST = "digest"
+    INSTANT = "instant"
+    MUTE = "mute"
+
+
+class DevicePlatform(StrEnum):
+    """Platform of a registered push device token (PRD 03 push subsystem)."""
+
+    IOS = "ios"
+    ANDROID = "android"
+    WEB = "web"
+
+
+class PushMessageType(StrEnum):
+    """Stable message-type discriminator the mobile PushLink routes on.
+
+    Types accumulate across PRDs; only the PRD 07 community types are wired
+    today. The rest are reserved so the discriminator contract is stable.
+    """
+
+    # PRD 07 — community feed
+    ANNOUNCEMENT_INSTANT = "announcement_instant"
+    DAILY_DIGEST = "daily_digest"
+    # PRD 03 — prayer times (reserved)
+    TIME_CHANGE = "time_change"
+    HIJRI_OFFSET = "hijri_offset"
+    PLATFORM_PUSH = "platform_push"
+    # PRD 02 / 04 (reserved)
+    SUBMISSION_APPROVED = "submission_approved"
+    PHOTO_APPROVED = "photo_approved"
+    QNA_ANSWERED = "qna_answered"
+
+
 class MadrashaStatus(StrEnum):
     PENDING = "pending"
     ACTIVE = "active"
@@ -147,3 +188,28 @@ class CalculationMethod(StrEnum):
     ISNA = "isna"
     EGYPT = "egypt"
     MAKKAH = "makkah"
+
+
+class QuranUnit(StrEnum):
+    """Unit a user tracks Qur'an progress in (PRD 08 gamification journal).
+
+    PAGES of the standard 604-page mushaf is the Bangladesh default; juz and
+    minutes are optional. The unit is a per-entry render/storage choice — the
+    client converts at unit-switch.
+    """
+
+    PAGES = "pages"
+    JUZ = "juz"
+    MINUTES = "minutes"
+
+
+class BadgeType(StrEnum):
+    """Tiered private milestone badges (PRD 08 BadgeEngine).
+
+    Values are the historical CamelCase strings so the ``user_badges`` CHECK
+    constraint and any stored rows stay stable across the v0 rework.
+    """
+
+    FAJR_WARRIOR = "FajrWarrior"
+    GENEROUS_GIVER = "GenerousGiver"
+    COMMUNITY_PILLAR = "CommunityPillar"

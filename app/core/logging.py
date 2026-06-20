@@ -3,7 +3,6 @@ import logging
 import sys
 from datetime import datetime, timezone
 
-
 _STDLIB_ATTRS = logging.LogRecord.__dict__.keys() | {
     "message",
     "asctime",

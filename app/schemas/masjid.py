@@ -3,7 +3,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
-
 # ── Nested schemas ─────────────────────────────────────────────────────────────
 
 

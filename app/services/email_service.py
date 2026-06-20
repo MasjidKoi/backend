@@ -1,7 +1,7 @@
 import logging
+from email.mime.text import MIMEText
 
 import aiosmtplib
-from email.mime.text import MIMEText
 
 from app.core.config import settings
 

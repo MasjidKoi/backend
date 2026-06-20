@@ -4,7 +4,6 @@ from pydantic import BaseModel, EmailStr, field_validator
 
 from app.models.enums import AdminRole
 
-
 # ── Request schemas ───────────────────────────────────────────────────────────
 
 
