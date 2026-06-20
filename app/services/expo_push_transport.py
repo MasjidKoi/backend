@@ -32,8 +32,11 @@ logger = logging.getLogger(__name__)
 
 _TIMEOUT = httpx.Timeout(15.0)
 _EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
-# Expo accepts at most 100 messages per request.
+_EXPO_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts"
+# Expo accepts at most 100 messages per send request.
 _BATCH_SIZE = 100
+# Expo accepts at most 1000 receipt ids per getReceipts request.
+_RECEIPTS_BATCH_SIZE = 1000
 # Deliverable Expo push tokens carry one of these prefixes.
 _EXPO_TOKEN_PREFIXES = ("ExponentPushToken[", "ExpoPushToken[")
 
@@ -82,6 +85,7 @@ class ExpoPushTransport:
 
         accepted = 0
         invalid: list[str] = []
+        receipts: list[tuple[str, str]] = []
         async with self._client() as client:
             for chunk in _chunked(deliverable, _BATCH_SIZE):
                 payload = [
@@ -106,8 +110,40 @@ class ExpoPushTransport:
                 for token, ticket in zip(chunk, tickets, strict=False):
                     if ticket.get("status") == "ok":
                         accepted += 1
+                        # Keep the receipt id paired with its token so the async
+                        # poll can map a dead receipt back to the token to reap.
+                        receipt_id = ticket.get("id")
+                        if receipt_id:
+                            receipts.append((receipt_id, token))
                     elif (ticket.get("details", {}) or {}).get(
                         "error"
                     ) == "DeviceNotRegistered":
                         invalid.append(token)
-        return SendResult(accepted=accepted, invalid_tokens=tuple(invalid))
+        return SendResult(
+            accepted=accepted,
+            invalid_tokens=tuple(invalid),
+            receipts=tuple(receipts),
+        )
+
+    async def get_receipts(self, receipt_ids: Sequence[str]) -> tuple[str, ...]:
+        """Poll Expo delivery receipts; return the receipt ids whose token is
+        permanently dead (``DeviceNotRegistered``).
+
+        Some failures only appear here, minutes after the send returned an ``ok``
+        ticket — this is how an uninstalled device finally gets reaped. Other
+        receipt errors are not token-death and are left alone."""
+        ids = list(receipt_ids)
+        if not ids:
+            return ()
+        dead: list[str] = []
+        async with self._client() as client:
+            for chunk in _chunked(ids, _RECEIPTS_BATCH_SIZE):
+                resp = await client.post(_EXPO_RECEIPTS_URL, json={"ids": chunk})
+                resp.raise_for_status()
+                data = resp.json().get("data") or {}
+                for receipt_id, receipt in data.items():
+                    if (receipt.get("details", {}) or {}).get(
+                        "error"
+                    ) == "DeviceNotRegistered":
+                        dead.append(receipt_id)
+        return tuple(dead)

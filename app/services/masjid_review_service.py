@@ -10,7 +10,6 @@ from app.repositories.masjid_review_repository import MasjidReviewRepository
 from app.repositories.user_profile_repository import UserProfileRepository
 from app.schemas.masjid_review import (
     LOW_STAR_MIN_BODY,
-    MasjidReviewCreate,
     MasjidReviewListResponse,
     MasjidReviewResponse,
     MasjidReviewUpsert,
@@ -43,41 +42,6 @@ class MasjidReviewService:
                     "characters explaining why."
                 ),
             )
-
-    async def submit_review(
-        self,
-        masjid_id: uuid.UUID,
-        user: CurrentUser,
-        data: MasjidReviewCreate,
-    ) -> MasjidReviewResponse:
-        self._validate_low_star_body(data.rating, data.body)
-        masjid = await self.masjid_repo.get_by_id(masjid_id)
-        if not masjid:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Masjid not found"
-            )
-
-        user_uuid = uuid.UUID(str(user.user_id))
-        existing = await self.repo.get_by_user_masjid(user_uuid, masjid_id)
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="You have already reviewed this masjid",
-            )
-
-        profile = await self.profile_repo.get_by_user_id(user_uuid)
-        display_name = profile.display_name if profile else None
-
-        review = MasjidReview(
-            masjid_id=masjid_id,
-            user_id=user_uuid,
-            rating=data.rating,
-            body=data.body,
-            reviewer_display_name=display_name,
-        )
-        await self.repo.add(review)
-        await self.repo.commit()
-        return MasjidReviewResponse.model_validate(review)
 
     async def upsert_review(
         self,
