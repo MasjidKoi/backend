@@ -21,6 +21,7 @@ from app.routers import (
     co_admins,
     events,
     gamification,
+    masjid_submissions,
     masjids,
     prayer_times,
     support,
@@ -79,6 +80,8 @@ app.add_middleware(LoggingMiddleware)
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(auth.router)
+# Before masjids.router so /masjids/submissions matches ahead of /masjids/{masjid_id}.
+app.include_router(masjid_submissions.router)
 app.include_router(masjids.router)
 app.include_router(prayer_times.router)
 app.include_router(announcements.router)

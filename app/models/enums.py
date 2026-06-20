@@ -42,6 +42,14 @@ class MasjidStatus(StrEnum):
     REMOVED = "removed"
 
 
+class MasjidSubmissionStatus(StrEnum):
+    """Lifecycle of a community-submitted masjid awaiting platform review."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class MadrashaStatus(StrEnum):
     PENDING = "pending"
     ACTIVE = "active"
