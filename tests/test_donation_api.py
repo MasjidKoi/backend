@@ -40,6 +40,18 @@ async def test_redirect_deep_links_into_app(client):
     assert r.headers["location"] == f"masjidkoi://donation/{did}?status=success"
 
 
+async def test_redirect_accepts_post(client):
+    # SSLCommerz redirects to the success URL by POST — a GET-only route 405s it.
+    # (No val_id in the body, so the completion path is skipped: just navigation.)
+    did = str(uuid.uuid4())
+    r = await client.post(
+        f"/payments/sslcommerz/redirect/success?donation_id={did}",
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == f"masjidkoi://donation/{did}?status=success"
+
+
 async def test_redirect_unknown_outcome_falls_back_to_fail(client):
     did = str(uuid.uuid4())
     r = await client.get(
