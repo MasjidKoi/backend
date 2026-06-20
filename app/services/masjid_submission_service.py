@@ -1,9 +1,10 @@
 import logging
 import uuid
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.security import CurrentUser
 from app.models.enums import MasjidSubmissionStatus, PushMessageType
 from app.repositories.audit_log_repository import AuditLogRepository
@@ -15,13 +16,21 @@ from app.schemas.masjid_submission import (
     MasjidSubmissionCreate,
     MasjidSubmissionListResponse,
     MasjidSubmissionResponse,
+    SubmissionPhotoUploadResponse,
 )
 from app.services.push_service import PushMessage, PushService
+from app.services.storage import StorageService
 
 logger = logging.getLogger(__name__)
 
 # Max simultaneously-pending submissions per user (abuse guard, PRD 02 ~3).
 _MAX_PENDING_PER_USER = 3
+
+# Photo upload limits — mirror the community-photo pipeline (kept local so this
+# path stays independent of that service).
+MAX_PHOTO_BYTES = 5 * 1024 * 1024  # 5 MB
+ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+_EXT_MAP = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
 
 
 class MasjidSubmissionService:
@@ -79,6 +88,45 @@ class MasjidSubmissionService:
     async def list_mine(self, user: CurrentUser) -> list[MasjidSubmissionResponse]:
         rows = await self.repo.list_for_user(user.user_id)
         return [MasjidSubmissionResponse.model_validate(r) for r in rows]
+
+    async def upload_photo(
+        self, file: UploadFile, user: CurrentUser, storage: StorageService
+    ) -> SubmissionPhotoUploadResponse:
+        """Store a submission photo and return its key — the client attaches the
+        key to the subsequent create-submission body (PRD 02). Validation mirrors
+        the community-photo pipeline; 415/413/422 are intentionally distinct."""
+        content_type = file.content_type or ""
+        if content_type not in ALLOWED_CONTENT_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail="Unsupported image type. Allowed: jpeg, png, webp",
+            )
+        raw = await file.read(MAX_PHOTO_BYTES + 1)
+        if len(raw) > MAX_PHOTO_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Photo exceeds 5 MB limit",
+            )
+        if not raw:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Empty file",
+            )
+
+        ext = _EXT_MAP.get(content_type, "jpg")
+        key = f"submissions/{user.user_id}/{uuid.uuid4()}.{ext}"
+        await storage.upload(
+            bucket=settings.S3_BUCKET_PHOTOS,
+            key=key,
+            data=raw,
+            content_type=content_type,
+        )
+        url = f"{settings.s3_endpoint}/{settings.S3_BUCKET_PHOTOS}/{key}"
+        logger.info(
+            "Submission photo uploaded",
+            extra={"user_id": str(user.user_id), "key": key},
+        )
+        return SubmissionPhotoUploadResponse(photo_key=key, url=url)
 
     # ── Admin ────────────────────────────────────────────────────────────────
 

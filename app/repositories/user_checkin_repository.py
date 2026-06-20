@@ -48,6 +48,16 @@ class UserCheckinRepository(BaseRepository[UserCheckin]):
         rows = (await self.db.execute(rows_q)).all()
         return [(row[0], row[1]) for row in rows], total
 
+    async def list_all_for_user(self, user_id: uuid.UUID) -> list[UserCheckin]:
+        """Every check-in by this user, newest first — for the full data export
+        (PRD 09)."""
+        result = await self.db.execute(
+            select(UserCheckin)
+            .where(UserCheckin.user_id == user_id)
+            .order_by(UserCheckin.checked_in_at.desc())
+        )
+        return list(result.scalars().all())
+
     async def count_by_user(self, user_id: uuid.UUID) -> int:
         result = await self.db.execute(
             select(func.count()).where(UserCheckin.user_id == user_id)

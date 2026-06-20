@@ -34,6 +34,16 @@ class DonationRepository(BaseRepository[Donation]):
         )
         return result.scalar_one_or_none()
 
+    async def list_all_for_user(self, user_id: uuid.UUID) -> list[Donation]:
+        """Every donation by this user, newest first — unpaginated, for the full
+        data export (PRD 09)."""
+        result = await self.db.execute(
+            select(Donation)
+            .where(Donation.user_id == user_id)
+            .order_by(Donation.created_at.desc())
+        )
+        return list(result.scalars().all())
+
     async def bump_campaign_raised(
         self, campaign_id: uuid.UUID, delta: Decimal
     ) -> None:

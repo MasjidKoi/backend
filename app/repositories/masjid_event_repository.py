@@ -90,6 +90,16 @@ class MasjidEventRepository(BaseRepository[MasjidEvent]):
         await self.db.delete(rsvp)
         await self.db.flush()
 
+    async def list_rsvps_for_user(self, user_id: uuid.UUID) -> list[EventRsvp]:
+        """Every event RSVP by this user, newest first — for the full data export
+        (PRD 09)."""
+        result = await self.db.execute(
+            select(EventRsvp)
+            .where(EventRsvp.user_id == user_id)
+            .order_by(EventRsvp.rsvp_at.desc())
+        )
+        return list(result.scalars().all())
+
     async def list_rsvps(
         self, event_id: uuid.UUID, masjid_id: uuid.UUID, offset: int, limit: int
     ) -> tuple[list[EventRsvp], int]:
