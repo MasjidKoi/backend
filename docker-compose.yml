@@ -104,6 +104,12 @@ services:
 
       # ── Email (dev: auto-confirm, no SMTP needed) ────────────────────────
       GOTRUE_MAILER_AUTOCONFIRM: ${GOTRUE_MAILER_AUTOCONFIRM:-true}
+      # OTP code validity must match the backend's CODE_TTL_S (600s) in
+      # app/services/otp_auth_service.py, else GoTrue keeps a code valid for its
+      # ~1h default after the API has already returned code_expired. Length 6
+      # matches the {{ .Token }} the template renders and the mobile OTP screen.
+      GOTRUE_MAILER_OTP_EXP: 600
+      GOTRUE_MAILER_OTP_LENGTH: 6
       GOTRUE_SMTP_HOST: ${SMTP_HOST:-""}
       GOTRUE_SMTP_PORT: ${SMTP_PORT:-587}
       GOTRUE_SMTP_USER: ${SMTP_USER:-""}
@@ -117,7 +123,7 @@ services:
       # so the mobile OTP screen can use the code instead of a link.
       # GoTrue loads templates by URL only — the api container serves it over
       # the internal Compose network.
-      GOTRUE_MAILER_SUBJECTS_MAGIC_LINK: "Your MasjidKoi login code"
+      GOTRUE_MAILER_SUBJECTS_MAGIC_LINK: "আপনার MasjidKoi লগইন কোড"
       GOTRUE_MAILER_TEMPLATES_MAGIC_LINK: http://api:8000/email-templates/magic_link.html
 
       # ── Email redirect paths (GoTrue's own verification endpoints) ──────────

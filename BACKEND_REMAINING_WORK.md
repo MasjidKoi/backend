@@ -4,18 +4,21 @@ Gap analysis of the 8 mobile PRDs (`../mobile/docs/prds/`) against the actual ba
 (`app/`). **Re-audited PRD-by-PRD on 2026-06-21** with one independent agent per PRD, each
 extracting every backend requirement and verifying it against source (not against this doc).
 
-> **Update 2026-06-21 — corrected after a full adversarial re-audit, then two fix passes.** The
+> **Update 2026-06-21 — corrected after a full adversarial re-audit, then three fix passes.** The
 > original pass claimed the backend was "feature-complete except PRD 02" — too optimistic. The
 > re-audit confirmed PRDs **03/07/08 airtight** and **04 complete bar trivia**, but found real
-> code gaps in **02, 05, 09**. Two fix passes have since closed the small + medium gaps:
+> code gaps in **02, 05, 09**. Three fix passes have since closed them:
 > **PR #17** — Q&A attribution, support-from-donation reference, broadcast audit-log, and
-> nearby/search cache headers; **second pass** — the full **data export** (PRD 09 #2), the
-> **submission photo upload** (PRD 02 #5), and the committed **OTP test suite** (PRD 01).
+> nearby/search cache headers; **PR #18** — the full **data export** (PRD 09 #2), the
+> **submission photo upload** (PRD 02 #5), and the committed **OTP test suite** (PRD 01);
+> **PR #19** — the three Tier-1 compliance gaps: the 30-day **account-deletion purge** (PRD 09 #1),
+> the **"donate anonymously by default" setting** (PRD 05 #3), and **per-message-type
+> notification gating** (PRD 05/09 #4) — each with a migration and tests.
 
-**Headline:** the backend now covers the bulk of all 8 PRDs. What remains is **three larger,
-compliance-shaped gaps** — the 30-day **account-deletion purge** (PRD 09), the **"donate
-anonymously by default" setting** (PRD 05), and **per-message-type notification gating**
-(PRD 05/09) — plus the domain-gated PRD 02 share/deep-link infra.
+**Headline:** the backend is now **feature-complete** across all 8 PRDs. Every Tier-1 and Tier-2
+code gap is closed. What remains is **non-code**: one minor hardening item (global `410 Gone`
+enforcement), the **domain-gated** PRD 02 share/deep-link infra, and external config (SSLCommerz
+prod creds, NBR tax flag, production domain, Expo FCM/APNs).
 
 ---
 
@@ -23,31 +26,30 @@ anonymously by default" setting** (PRD 05), and **per-message-type notification 
 
 | PRD | Area | Status | What's left |
 |---|---|---|---|
-| 01 | Onboarding & Auth (email OTP) | ✅ **Done** | OTP pytest suite landed (2026-06-21) |
+| 01 | Onboarding & Auth (email OTP) | ✅ **Done** | OTP suite + Bengali OTP email, GoTrue OTP-TTL, madhab vocab fix (2026-06-21) |
 | 02 | Discovery & Map | 🟡 **share/deep-link only** | Share/OG page + `.well-known` (domain-gated). Submission photo upload landed (2026-06-21) |
 | 03 | Prayer Times & **Push** | ✅ **Done (verified, with tests)** | Nothing |
 | 04 | Profile / Photos / Q&A | ✅ **Done** | Q&A public attribution fixed (PR #17) |
-| 05 | Donations & Dashboard | 🟡 **2 code gaps + config** | "Donate anonymously by default" setting; per-type push gating (both code). Plus NGO config |
+| 05 | Donations & Dashboard | ✅ **Done (code)** | Donate-anon default + per-type push gating landed (PR #19). NGO config still external |
 | 07 | Community (feed/reviews) | ✅ **Done (verified)** | Nothing |
 | 08 | Gamification | ✅ **Done (verified)** | Nothing in backend scope |
-| 09 | Settings & Accessibility | 🟡 **deletion purge only** | 30-day deletion **purge** still missing. Data export widened (2026-06-21) |
+| 09 | Settings & Accessibility | ✅ **Done (code)** | Deletion purge landed (PR #19); export widened (PR #18). Only global `410` hardening left |
 
 ---
 
-## 🔴 Tier 1 — compliance / product promises that are broken
+## 🔴 Tier 1 — all closed ✅
 
-### #1 — PRD 09: 30-day account-deletion purge does not exist
-`DELETE /users/me` only flips `is_deleted` + `deletion_requested_at` (`user_service.delete_me`,
-`user_profile_repository.py:34`). **No scheduler job** ever consumes `deletion_requested_at` to
-hard-delete, and the user's reviews / photos / Q&A / check-ins / journal / goals / donations are
-never removed or anonymized. The 202 response body and the settings UI copy promise "purged
-within 30 days" and "reviews and photos removed." *(Independently corroborated by the PRD 08
-audit, which noted the purge job is absent.)*
-**Needs:** a scheduled purge job (`core/scheduler.py`) that, past the 30-day window, hard-deletes
-or anonymizes across all user-linked tables (gamification tables key on bare `user_id`, so no FK
-blocking).
+### #1 — PRD 09: 30-day account-deletion purge — ✅ **FIXED (PR #19)**
+`DELETE /users/me` still soft-deletes (flips `is_deleted` + stamps `deletion_requested_at`); a new
+scheduled consumer now honours the 30-day promise. `AccountPurgeService.run_due()` finds every
+soft-deleted account past `settings.ACCOUNT_PURGE_WINDOW_DAYS` and **anonymises** it — content rows
+are re-keyed to a throwaway pseudonym (via `AccountPurgeRepository.anonymize_user`) so the masjids'
+financial books stay intact, and the profile is reduced to a tombstone. Each account is purged in
+its own transaction (one failure can't poison the sweep) and the `purged_at` stamp makes re-runs
+idempotent. Wired into APScheduler **daily at 03:30 UTC** in `main.py`'s lifespan, gated on
+`SCHEDULER_ENABLED` behind a Redis singleton lock. Covered by `tests/test_prd09_purge.py`.
 
-### #2 — PRD 09: data export widened — ✅ **FIXED 2026-06-21**
+### #2 — PRD 09: data export widened — ✅ **FIXED (PR #18)**
 `GET /users/me/export` now carries every user-linked collection — donations, reviews, Q&A,
 submissions, check-ins, journal entries, goals (+ completion dates), badges, support tickets,
 device tokens, reports, recurring schedules, event RSVPs — on top of profile + follows. New
@@ -55,22 +57,22 @@ device tokens, reports, recurring schedules, event RSVPs — on top of profile +
 (sequential, single session); added `list_all_for_user`/`list_for_user`/`list_rsvps_for_user`
 to the repos that lacked one. No migration (read-only). Covered by `tests/test_prd09_export.py`.
 
-### #3 — PRD 05: "donate anonymously by default" setting is missing entirely
-PRD 05 explicitly says it *fills* this reserved PRD 09 slot, but there is no field on
-`UserProfile`, no schema, no route (grep for `anonymous_by_default`/`donate_anon` → nothing).
-The per-donation `is_anonymous` toggle works but defaults to `False` with no stored preference
-to seed it from.
-**Needs:** a `donate_anonymously_by_default` bool on `UserProfile` (+ migration), exposed via
-the profile/notification-preferences endpoints, used to seed `DonationCreate.is_anonymous`.
+### #3 — PRD 05: "donate anonymously by default" setting — ✅ **FIXED (PR #19)**
+A `donate_anonymously_by_default` bool now lives on `UserProfile` (migration `…31a7`), exposed via
+the notification-preferences schema/endpoints. `DonationService.create` seeds the per-donation
+`is_anonymous` from it whenever the client sends no explicit value (`donation_service.py:187` —
+`if is_anonymous is None: is_anonymous = profile.donate_anonymously_by_default`); an explicit
+per-donation toggle still wins. Covered by `tests/test_donate_anonymous_default.py`.
 
-### #4 — Per-message-type notification gating doesn't exist (PRD 05 US 53 + PRD 09 US 28)
-*Flagged independently by both the PRD 05 and PRD 09 audits.* Notification controls today are
-only `digest_hour` + per-masjid `notification_mode` (instant/digest/mute), which govern masjid
-announcements/digests. `PushService.notify_users` (`push_service.py:131-140`) dispatches with
-**no per-type preference check**, so a user cannot mute donation pushes (confirmed/recovery/
-nudge/milestone) or the settings "Other" toggles (Eid / submission / moderation outcomes) —
-both PRDs assert "nothing notifies me without a switch behind it."
-**Needs:** per-message-type opt-out preferences + a check in the push fan-out.
+### #4 — Per-message-type notification gating — ✅ **FIXED (PR #19)**
+`PushService` now gates the fan-out per message type. `_MUTE_COLUMN_BY_TYPE` maps each
+`PushMessageType` to a `UserProfile` mute column (`mute_donation_nudge`, `mute_campaign_milestone`,
+`mute_moderation_outcome`, `mute_promotions`), with an **import-time exhaustiveness check** that
+fails loudly if a new push type is added without a gating decision. The user/platform fan-outs
+filter recipients via `repo.list_*_tokens_not_muting(mute_column)` (`push_service.py:181-197`), so
+a user can mute donation/Eid/submission/moderation pushes. Per-follow types (instant announcement,
+digest, time-change) stay gated upstream by `notification_mode`. Covered by
+`tests/test_push_gating.py`.
 
 ---
 
@@ -102,6 +104,20 @@ the column already exists on the model). **Done.**
 - **PRD 01:** ✅ **FIXED 2026-06-21** — the committed OTP pytest suite landed
   (`tests/test_otp_auth.py`, 12 cases: cooldown report, per-email/per-IP caps, 5-attempt lockout,
   expiry vs wrong-code classification, token+is_new_user, bootstrap-once, no-Redis degradation).
+- **PRD 01 (full re-audit polish, 2026-06-21):** the PRD-by-PRD re-audit surfaced three smaller
+  PRD 01 items, all now closed:
+  - ✅ **Bengali OTP email (US #37)** — `app/email_templates/magic_link.html` was English-only;
+    rewritten fully Bengali (`lang="bn"`, `১০ মিনিটে` expiry), and `GOTRUE_MAILER_SUBJECTS_MAGIC_LINK`
+    set to `আপনার MasjidKoi লগইন কোড`. Brand wordmark + `{{ .Token }}` preserved.
+  - ✅ **GoTrue OTP TTL** — added `GOTRUE_MAILER_OTP_EXP: 600` (+ `GOTRUE_MAILER_OTP_LENGTH: 6`) to
+    `docker-compose.yml` so GoTrue's code validity matches the backend's 600 s `otp:issued` marker
+    (`CODE_TTL_S`); previously GoTrue held codes ~1h while the API already returned `code_expired`.
+  - ✅ **Madhab vocabulary** — `MadhabhType` (`app/schemas/user.py`) was a CamelCase / two-i
+    `"Shafii"` `Literal`, diverging from the canonical lowercase `Madhab` enum the Asr calculator
+    keys on (`prayer_calculator._ASR_MULTIPLIERS`). Replaced with a forgiving `BeforeValidator`
+    normalizer (any case + `shafii→shafi` alias → canonical, invalid → 422). Profile madhab is
+    display-only today, so this closes a latent footgun, not a live Asr bug. Covered by
+    `tests/test_madhab_normalization.py`.
 - **PRD 02:** ✅ **FIXED (PR #17)** — `Cache-Control: public, max-age=60` on `nearby`/`search`.
 - **PRD 03:** ✅ **FIXED (PR #17)** — `POST /admin/broadcast-push` now writes an audit-log entry.
   (Still worth a one-line confirm with mobile that "follow == eligible for TIME_CHANGE ping.")
@@ -139,7 +155,7 @@ the column already exists on the model). **Done.**
 - **PRD 05 donations — money core verified, 56 tests:** SSLCommerz create/IPN/refund, idempotent
   COMPLETED-on-IPN with row-lock + cross-check, receipts (PDF, gapless numbering, tax-flag-gated),
   recurring schedule + nudge, admin balances/disbursement/refund, all four pushes, Generous Giver
-  feed. Gaps are #3/#4/#7 above, not the core.
+  feed. Former gaps #3/#4/#7 all closed (PRs #17/#19).
 - **PRD 04 profile/photos/Q&A — verified:** profile data, community-photo pipeline + moderation,
   Q&A subsystem, suggest-an-edit, shared 7-day moderation routing predicate.
 - **PRD 01 auth — verified:** OTP request/verify, cooldown/caps/lockout/TTL, profile bootstrap,

@@ -1,10 +1,29 @@
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Annotated
 
-from pydantic import BaseModel
+from pydantic import BaseModel, BeforeValidator
 
-MadhabhType = Literal["Hanafi", "Shafii", "Maliki", "Hanbali"]
+from app.models.enums import Madhab
+
+_MADHAB_ALIASES = {"shafii": "shafi"}  # tolerate the two-i spelling the client used
+
+
+def _normalize_madhab(v: str | None) -> str | None:
+    """Coerce any-case / aliased madhab input to the canonical lowercase ``Madhab``
+    enum value the rest of the system uses (prayer_calculator._ASR_MULTIPLIERS,
+    platform_settings, prayer_times.madhab). Forgiving on input, canonical on store."""
+    if v is None:
+        return None
+    key = str(v).strip().lower()
+    key = _MADHAB_ALIASES.get(key, key)
+    valid = {m.value for m in Madhab}
+    if key not in valid:
+        raise ValueError(f"madhab must be one of {sorted(valid)}")
+    return key
+
+
+MadhabhType = Annotated[str, BeforeValidator(_normalize_madhab)]
 
 
 class UserProfileResponse(BaseModel):
