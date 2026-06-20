@@ -20,6 +20,7 @@ from app.schemas.community_photo import (
     CommunityPhotoPublicListResponse,
     CommunityPhotoSubmissionResponse,
 )
+from app.services.gamification_service import GamificationService
 from app.services.moderation_routing import can_moderate, ngo_pending_cutoff
 from app.services.push_service import PushMessage, PushService
 from app.services.storage import StorageService
@@ -283,5 +284,13 @@ class CommunityPhotoService:
                     },
                 ),
             )
+            # An approved photo counts toward Community Pillar (PRD 08); re-evaluate
+            # the uploader's badges. Best-effort, so a failure never breaks approval.
+            try:
+                await GamificationService(self.db).reevaluate_badges(photo.uploaded_by)
+            except Exception:
+                logger.exception(
+                    "Badge re-eval failed after photo approval %s", photo_id
+                )
         logger.info("Community photo %s", new_status, extra={"photo_id": str(photo_id)})
         return CommunityPhotoModerationResponse.model_validate(photo)

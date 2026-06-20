@@ -25,7 +25,7 @@ delivery layer** and a few discrete features. PRD 09 needs **zero** backend work
 | 04 | Profile / Photos / Q&A | ✅ **Done** | ~~Photo + Q&A approval pushes~~ ✅ wired (deliver once transport lands) |
 | 05 | Donations & Dashboard | ✅ **Done** | Only NGO config (SSLCommerz creds, NBR flag) — not code |
 | 07 | Community (feed/reviews) | ✅ **Done** | ~~Review self-delete~~ ✅ done; (optional) drop redundant create-review route |
-| 08 | Gamification | 🟡 Mostly done | **Goals + templates (whole subsystem)**; Community Pillar counter inputs |
+| 08 | Gamification | 🟡 Mostly done | **Goals + templates (whole subsystem)**; Community Pillar reports input (photos ✅) |
 | 09 | Settings & Accessibility | ✅ **Done** | Nothing — deletion/export/profile endpoints exist and are reused |
 
 ---
@@ -112,9 +112,11 @@ route/files behind it once a domain exists.
   daily-pace recompute, daily Ayat al-Kursi, weekly Surah al-Kahf), and journal-fed Qur'an
   progress. **NOTE:** PRD 08 sequences this to **R2 (Jan 2027, pre-Ramadan)** — likely a
   deliberate deferral, not an oversight, but it is genuinely not built.
-- **Community Pillar counter** — `gamification_service.py:279` counts **check-ins only**;
-  the PRD also wants accepted info reports + approved community photos summed in (noted as
-  not-yet-summed in a code comment).
+- **Community Pillar counter** — ✅ **approved community photos now counted** (1 pt each,
+  alongside check-ins) with a badge re-eval hook on photo approval + DB-backed tests
+  (`tests/test_community_pillar.py`). **Remaining:** accepted info reports — deferred
+  because `masjid_reports` has no `user_id` (needs a migration + optional-auth on the
+  guest report endpoint to attribute a report to a user).
 
 *Already done:* StreakEngine (all-5/day, derived freezes, Dhaka noon finalization,
 protected-day pass-through), BadgeEngine (tiers, idempotent, no-skip), journal field-level

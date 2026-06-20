@@ -115,6 +115,17 @@ class MasjidPhotoRepository(BaseRepository[MasjidPhoto]):
         )
         return result.scalar_one()
 
+    async def count_approved_community_by_user(self, user_id: uuid.UUID) -> int:
+        """Approved community photos uploaded by this user, for Community Pillar."""
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(MasjidPhoto)
+            .where(MasjidPhoto.uploaded_by == user_id)
+            .where(MasjidPhoto.source == PhotoSource.COMMUNITY)
+            .where(MasjidPhoto.status == PhotoModerationStatus.APPROVED)
+        )
+        return result.scalar_one()
+
     async def count_community_by_user_masjid_since(
         self, user_id: uuid.UUID, masjid_id: uuid.UUID, since: datetime
     ) -> int:
