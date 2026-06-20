@@ -275,11 +275,21 @@ async def update_settings(
 )
 async def broadcast_push(
     body: BroadcastPushRequest,
-    _user: CurrentUser = Depends(require_platform_admin),
+    user: CurrentUser = Depends(require_platform_admin),
     push: PushService = Depends(get_push_service),
+    db: AsyncSession = Depends(get_db),
 ) -> BroadcastPushResponse:
     # PRD 03 PLATFORM_PUSH — Eid / Ramadan-start / urgent notices. Best-effort
-    # fan-out to all registered devices (never raises). Audit-logging this
-    # high-impact action is a reasonable follow-up.
+    # fan-out to all registered devices (never raises).
     count = await push.broadcast_platform_push(body.title, body.body, body.data)
+    # Audit this high-impact platform-wide action (who, what, reach).
+    await AuditLogRepository(db).log(
+        admin_id=user.user_id,
+        admin_email=user.email,
+        admin_role=user.role,
+        action="broadcast_platform_push",
+        target_entity="platform_push",
+        details={"title": body.title, "devices_notified": count},
+    )
+    await db.commit()
     return BroadcastPushResponse(devices_notified=count)

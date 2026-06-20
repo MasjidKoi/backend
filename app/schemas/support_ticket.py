@@ -4,7 +4,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-TicketCategory = Literal["Bug", "IncorrectData", "FeatureRequest", "Other"]
+TicketCategory = Literal[
+    "Bug", "IncorrectData", "FeatureRequest", "DonationIssue", "Other"
+]
 TicketStatus = Literal["Open", "InProgress", "Resolved"]
 
 
@@ -12,6 +14,8 @@ class SupportTicketCreate(BaseModel):
     category: TicketCategory
     subject: str | None = Field(default=None, max_length=200)
     description: str | None = Field(default=None, max_length=5000)
+    # Set when the ticket is opened from a donation's detail view (US 51).
+    donation_id: uuid.UUID | None = None
 
 
 class SupportTicketUpdate(BaseModel):
@@ -34,6 +38,7 @@ class SupportTicketAdminResponse(BaseModel):
     category: str
     subject: str | None
     description: str | None
+    donation_id: uuid.UUID | None
     status: str
     assigned_to: uuid.UUID | None
     assigned_to_email: str | None

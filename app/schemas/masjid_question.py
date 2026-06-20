@@ -25,7 +25,12 @@ class QuestionAnswer(BaseModel):
 
 
 class QuestionPublic(BaseModel):
-    """Public view of an answered question (no asker identity)."""
+    """Public view of an answered question (no asker identity).
+
+    Carries `answer_author_role` so the client can attribute every published
+    answer to the masjid (admin-answered) or the NGO (US 38) — the column is
+    already populated at answer time; this only exposes it publicly.
+    """
 
     model_config = ConfigDict(from_attributes=True)
     question_id: uuid.UUID
@@ -34,6 +39,7 @@ class QuestionPublic(BaseModel):
     answer: str | None
     answered_at: datetime | None
     created_at: datetime
+    answer_author_role: str | None
 
 
 class QuestionPublicListResponse(BaseModel):

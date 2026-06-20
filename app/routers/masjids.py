@@ -2,7 +2,7 @@ import io
 import json
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.core.rate_limit import make_rate_limiter
@@ -103,9 +103,13 @@ async def get_nearby(
     has_school: bool | None = Query(
         default=None, description="Filter: has Islamic school"
     ),
+    response: Response = None,  # type: ignore[assignment]  # injected by FastAPI
     _rl: None = Depends(_nearby_limiter),
     service: MasjidService = Depends(get_masjid_service),
 ) -> list[MasjidNearbyResult]:
+    # Public, location-keyed and slow-changing — allow short-lived shared/CDN
+    # caching. Masjid data changes infrequently; 60s bounds staleness.
+    response.headers["Cache-Control"] = "public, max-age=60"
     return await service.get_nearby(
         lat=lat,
         lng=lng,
@@ -138,8 +142,11 @@ async def search_masjids(
         le=180.0,
         description="Optional longitude — must be supplied together with lat",
     ),
+    response: Response = None,  # type: ignore[assignment]  # injected by FastAPI
     service: MasjidService = Depends(get_masjid_service),
 ) -> list[MasjidSearchResult]:
+    # Public, slow-changing — allow short-lived shared/CDN caching.
+    response.headers["Cache-Control"] = "public, max-age=60"
     return await service.search(q, lat=lat, lng=lng)
 
 
