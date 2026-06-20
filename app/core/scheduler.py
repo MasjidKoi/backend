@@ -112,3 +112,20 @@ async def sweep_stale_pending_donations() -> None:
             await DonationService(db).sweep_stale_pending()
 
     await _run_singleton("sweep_stale_pending_donations", 600, _run)
+
+
+async def reap_push_receipts() -> None:
+    """Poll Expo delivery receipts ~15 min after send and prune tokens it reports
+    DeviceNotRegistered — failures that only surface asynchronously (PRD 03 #0
+    follow-up). A no-op unless PUSH_ENABLED: LoggingTransport returns no receipts,
+    so nothing is ever recorded to poll."""
+
+    async def _run() -> None:
+        async with async_session_maker() as db:
+            from app.services.push_service import PushService
+
+            reaped = await PushService(db).reap_due_receipts()
+            if reaped:
+                logger.info("Reaped %d dead device token(s) from push receipts", reaped)
+
+    await _run_singleton("reap_push_receipts", 500, _run)

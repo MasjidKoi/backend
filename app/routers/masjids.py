@@ -40,7 +40,6 @@ from app.schemas.masjid_report import (
     MasjidReportUpdateStatus,
 )
 from app.schemas.masjid_review import (
-    MasjidReviewCreate,
     MasjidReviewListResponse,
     MasjidReviewResponse,
     MasjidReviewUpsert,
@@ -413,21 +412,6 @@ async def get_follower_count(
     service: UserMasjidFollowService = Depends(get_follow_service),
 ) -> dict:
     return await service.get_follower_count(masjid_id)
-
-
-@router.post(
-    "/{masjid_id}/reviews",
-    response_model=MasjidReviewResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Submit a star rating + review for a masjid (authenticated)",
-)
-async def submit_review(
-    masjid_id: uuid.UUID,
-    body: MasjidReviewCreate,
-    user: CurrentUser = Depends(get_current_user),
-    service: MasjidReviewService = Depends(get_masjid_review_service),
-) -> MasjidReviewResponse:
-    return await service.submit_review(masjid_id, user, body)
 
 
 @router.put(

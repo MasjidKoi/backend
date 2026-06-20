@@ -9,11 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field
 LOW_STAR_MIN_BODY = 20
 
 
-class MasjidReviewCreate(BaseModel):
-    rating: int = Field(..., ge=1, le=5)
-    body: str | None = Field(default=None, max_length=1000)
-
-
 class MasjidReviewUpsert(BaseModel):
     """Body for PUT /masjids/{id}/reviews — create or fully replace my review."""
 

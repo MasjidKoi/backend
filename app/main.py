@@ -13,6 +13,7 @@ from app.core.logging import setup_logging
 from app.core.middleware import LoggingMiddleware
 from app.core.scheduler import (
     publish_scheduled_announcements,
+    reap_push_receipts,
     scheduler,
     send_daily_digests,
     send_recurring_donation_nudges,
@@ -87,6 +88,16 @@ async def lifespan(app: FastAPI):
             trigger="interval",
             hours=1,
             id="sweep_stale_pending_donations",
+            replace_existing=True,
+        )
+        # Push-receipt reaper: every 10 min, poll Expo for receipts on sends
+        # older than ~15 min and prune tokens reported DeviceNotRegistered
+        # (PRD 03 #0 follow-up). No-op unless PUSH_ENABLED.
+        scheduler.add_job(
+            reap_push_receipts,
+            trigger="interval",
+            minutes=10,
+            id="reap_push_receipts",
             replace_existing=True,
         )
         scheduler.start()

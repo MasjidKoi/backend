@@ -145,6 +145,72 @@ async def test_all_tokens_non_expo_skips_network_entirely():
     assert result.invalid_tokens == ()
 
 
+async def test_send_returns_receipts_for_ok_tickets():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"status": "ok", "id": "rcpt-1"},
+                    {"status": "ok", "id": "rcpt-2"},
+                ]
+            },
+        )
+
+    t1, t2 = _expo_token(1), _expo_token(2)
+    result = await _transport(handler).send([t1, t2], _message())
+
+    # Each accepted send carries its (receipt_id, token) pair for the async poll.
+    assert result.receipts == (("rcpt-1", t1), ("rcpt-2", t2))
+
+
+async def test_get_receipts_surfaces_device_not_registered():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url == httpx.URL("https://exp.host/--/api/v2/push/getReceipts")
+        assert json.loads(request.content) == {"ids": ["rcpt-dead", "rcpt-ok"]}
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "rcpt-dead": {
+                        "status": "error",
+                        "message": "gone",
+                        "details": {"error": "DeviceNotRegistered"},
+                    },
+                    "rcpt-ok": {"status": "ok"},
+                }
+            },
+        )
+
+    dead = await _transport(handler).get_receipts(["rcpt-dead", "rcpt-ok"])
+
+    assert dead == ("rcpt-dead",)  # only the DeviceNotRegistered id
+
+
+async def test_get_receipts_ignores_other_errors():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "rcpt-1": {
+                        "status": "error",
+                        "details": {"error": "MessageTooBig"},
+                    }
+                }
+            },
+        )
+
+    assert await _transport(handler).get_receipts(["rcpt-1"]) == ()
+
+
+async def test_get_receipts_empty_skips_network():
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
+        raise AssertionError("should not POST with no receipt ids")
+
+    assert await _transport(handler).get_receipts([]) == ()
+
+
 async def test_authorization_header_present_only_with_token():
     seen: dict[str, str | None] = {}
 

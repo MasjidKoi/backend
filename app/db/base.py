@@ -24,6 +24,7 @@ from app.models import masjid_review as _masjid_review  # noqa: F401, E402
 from app.models import masjid_submission as _masjid_submission  # noqa: F401, E402
 from app.models import platform_settings as _platform_settings  # noqa: F401, E402
 from app.models import prayer_times as _prayer_times  # noqa: F401, E402
+from app.models import push_receipt as _push_receipt  # noqa: F401, E402
 from app.models import recurring_schedule as _recurring_schedule  # noqa: F401, E402
 from app.models import support_ticket as _support_ticket  # noqa: F401, E402
 from app.models import user_badge as _user_badge  # noqa: F401, E402

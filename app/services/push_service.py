@@ -19,6 +19,7 @@ import logging
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.enums import PushMessageType
 from app.repositories.device_token_repository import DeviceTokenRepository
+from app.repositories.push_receipt_repository import PushReceiptRepository
+
+# Expo delivery receipts are ready a few minutes after a send; we poll those
+# older than this so a token's async DeviceNotRegistered is caught and reaped.
+RECEIPT_POLL_DELAY_MINUTES = 15
+RECEIPT_POLL_BATCH = 1000
 
 if TYPE_CHECKING:
     from app.models.device_token import DeviceToken
@@ -47,17 +54,24 @@ class PushMessage:
 
 @dataclass(frozen=True, slots=True)
 class SendResult:
-    """Outcome of one fan-out: how many devices accepted, plus any tokens the
-    provider reported as permanently dead (``DeviceNotRegistered``) so the caller
-    can reap them from the registry."""
+    """Outcome of one fan-out: how many devices accepted, any tokens the provider
+    reported permanently dead (``DeviceNotRegistered``) at send time so the caller
+    can reap them, and the ``(receipt_id, token)`` pairs of accepted sends whose
+    delivery receipt must be polled later (errors that only surface async)."""
 
     accepted: int
     invalid_tokens: tuple[str, ...] = ()
+    receipts: tuple[tuple[str, str], ...] = ()
 
 
 class PushTransport(Protocol):
     async def send(self, tokens: Sequence[str], message: PushMessage) -> SendResult:
         """Deliver ``message`` to ``tokens``; report accepted count + dead tokens."""
+        ...
+
+    async def get_receipts(self, receipt_ids: Sequence[str]) -> tuple[str, ...]:
+        """Poll delivery receipts; return the ids whose token is permanently dead
+        (``DeviceNotRegistered``)."""
         ...
 
 
@@ -75,7 +89,11 @@ class LoggingTransport:
             message.title,
             message.data,
         )
+        # No receipts: nothing to poll for the no-op transport.
         return SendResult(accepted=len(tokens))
+
+    async def get_receipts(self, receipt_ids: Sequence[str]) -> tuple[str, ...]:
+        return ()
 
 
 def _build_default_transport() -> PushTransport:
@@ -93,6 +111,7 @@ class PushService:
         self, db: AsyncSession, transport: PushTransport | None = None
     ) -> None:
         self.repo = DeviceTokenRepository(db)
+        self.receipt_repo = PushReceiptRepository(db)
         self.transport: PushTransport = transport or _build_default_transport()
 
     # ── Token registry ──────────────────────────────────────────────────────
@@ -158,6 +177,17 @@ class PushService:
                 message.message_type.value,
             )
             return 0
+        if result.receipts:
+            # Record accepted sends so the async getReceipts poll can catch a
+            # DeviceNotRegistered that only surfaces in the receipt. Best-effort —
+            # only ExpoPushTransport returns receipts; LoggingTransport returns none.
+            try:
+                await self.receipt_repo.create_many(result.receipts)
+                await self.receipt_repo.commit()
+            except Exception:
+                logger.exception(
+                    "Failed to persist %d push receipt(s)", len(result.receipts)
+                )
         if result.invalid_tokens:
             # Reap permanently-dead tokens (e.g. app uninstall, which never hits
             # the logout prune path). Best-effort — never let registry hygiene
@@ -171,3 +201,41 @@ class PushService:
                     len(result.invalid_tokens),
                 )
         return result.accepted
+
+    async def reap_due_receipts(
+        self,
+        *,
+        older_than_minutes: int = RECEIPT_POLL_DELAY_MINUTES,
+        limit: int = RECEIPT_POLL_BATCH,
+    ) -> int:
+        """Poll Expo for receipts on sends older than ~15 min and prune any token
+        the receipt reports ``DeviceNotRegistered`` — failures that only surface
+        asynchronously, not in the synchronous send ticket (PRD 03 #0 follow-up).
+
+        Returns the number of tokens reaped. Best-effort and idempotent: every
+        polled receipt row is deleted afterwards (checked once), and a no-op
+        ``LoggingTransport`` simply finds nothing to do."""
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=older_than_minutes)
+        due = await self.receipt_repo.get_due(cutoff, limit)
+        if not due:
+            return 0
+        try:
+            dead_ids = set(
+                await self.transport.get_receipts([r.receipt_id for r in due])
+            )
+        except Exception:
+            logger.exception("getReceipts poll failed for %d receipt(s)", len(due))
+            return 0
+
+        dead_tokens = {r.token for r in due if r.receipt_id in dead_ids}
+        reaped = 0
+        try:
+            if dead_tokens:
+                reaped = await self.repo.delete_tokens(tuple(dead_tokens))
+            await self.receipt_repo.delete_by_ids([r.receipt_id for r in due])
+            await self.repo.commit()
+        except Exception:
+            logger.exception(
+                "Failed to reap %d dead token(s) from receipts", len(dead_tokens)
+            )
+        return reaped
