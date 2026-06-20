@@ -22,6 +22,7 @@ from app.routers import (
     community_photos,
     events,
     gamification,
+    masjid_questions,
     masjid_submissions,
     masjids,
     prayer_times,
@@ -86,6 +87,9 @@ app.include_router(masjid_submissions.router)
 # community_photos paths carry a static segment so they never collide with
 # masjids.router's /masjids/{masjid_id}; ordering relative to it is immaterial.
 app.include_router(community_photos.router)
+# Q&A paths carry a static `/questions` segment so they never collide with
+# masjids.router's /masjids/{masjid_id}; ordering relative to it is immaterial.
+app.include_router(masjid_questions.router)
 app.include_router(masjids.router)
 app.include_router(prayer_times.router)
 app.include_router(announcements.router)

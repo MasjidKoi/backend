@@ -12,6 +12,7 @@ from app.models import (  # noqa: E402
     masjid_co_admin_invite as _masjid_co_admin_invite,  # noqa: F401
 )
 from app.models import masjid_event as _masjid_event  # noqa: F401, E402
+from app.models import masjid_question as _masjid_question  # noqa: F401, E402
 from app.models import masjid_report as _masjid_report  # noqa: F401, E402
 from app.models import masjid_review as _masjid_review  # noqa: F401, E402
 from app.models import masjid_submission as _masjid_submission  # noqa: F401, E402

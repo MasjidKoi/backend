@@ -76,6 +76,30 @@ class PhotoModerationStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class QuestionStatus(StrEnum):
+    """Moderation lifecycle of a masjid question.
+
+    Questions are born PENDING and only become publicly visible once ANSWERED.
+    REJECTED questions remain visible to their asker only (no public trace).
+    """
+
+    PENDING = "pending"
+    ANSWERED = "answered"
+    REJECTED = "rejected"
+
+
+class AnswerAuthorRole(StrEnum):
+    """Role of whoever answered a masjid question.
+
+    Stored explicitly so community-authored answers can open later without a
+    schema change — today only the masjid's own admin or a platform admin answer.
+    """
+
+    MASJID_ADMIN = "masjid_admin"
+    PLATFORM_ADMIN = "platform_admin"
+    COMMUNITY = "community"
+
+
 class MadrashaStatus(StrEnum):
     PENDING = "pending"
     ACTIVE = "active"
