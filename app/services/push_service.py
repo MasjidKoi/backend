@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.enums import PushMessageType
+from app.models.user_profile import UserProfile
 from app.repositories.device_token_repository import DeviceTokenRepository
 from app.repositories.push_receipt_repository import PushReceiptRepository
 
@@ -38,6 +39,47 @@ if TYPE_CHECKING:
     from app.models.device_token import DeviceToken
 
 logger = logging.getLogger(__name__)
+
+# Per-message-type push gating (PRD 05 #4 / PRD 09 #28). Maps each push type to
+# the UserProfile boolean column that mutes it, or ``None`` for always-on
+# (transactional / correctness) types that have no switch by design. Masjid-scoped
+# types (instant announcement, digest, time-change) are gated upstream per-follow
+# via notification_mode, so they are ``None`` here. Every PushMessageType MUST
+# appear so the gate is exhaustive and auditable.
+_MUTE_COLUMN_BY_TYPE: dict[PushMessageType, str | None] = {
+    # Gateable
+    PushMessageType.RECURRING_NUDGE: "mute_donation_nudge",
+    PushMessageType.CAMPAIGN_MILESTONE: "mute_campaign_milestone",
+    PushMessageType.SUBMISSION_APPROVED: "mute_moderation_outcome",
+    PushMessageType.PHOTO_APPROVED: "mute_moderation_outcome",
+    PushMessageType.QNA_ANSWERED: "mute_moderation_outcome",
+    PushMessageType.PLATFORM_PUSH: "mute_promotions",
+    # Always-on — transactional / correctness
+    PushMessageType.DONATION_CONFIRMED: None,
+    PushMessageType.PAYMENT_RECOVERY: None,
+    PushMessageType.HIJRI_OFFSET: None,
+    # Always-on here — already gated per-follow upstream
+    PushMessageType.ANNOUNCEMENT_INSTANT: None,
+    PushMessageType.DAILY_DIGEST: None,
+    PushMessageType.TIME_CHANGE: None,
+}
+
+# Fail at import, not mid-fan-out, if the gate ever drifts: a type missing from
+# the map would silently default to always-on (leaking pushes a user muted), and
+# a misspelled column name would raise AttributeError out of the best-effort push
+# path. Both become a loud startup error instead.
+_unmapped_types = set(PushMessageType) - set(_MUTE_COLUMN_BY_TYPE)
+if _unmapped_types:
+    raise RuntimeError(
+        f"PushMessageType(s) missing from _MUTE_COLUMN_BY_TYPE: {_unmapped_types}"
+    )
+_bad_mute_columns = [
+    column
+    for column in _MUTE_COLUMN_BY_TYPE.values()
+    if column is not None and not hasattr(UserProfile, column)
+]
+if _bad_mute_columns:
+    raise RuntimeError(f"Unknown UserProfile mute column(s): {_bad_mute_columns}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,14 +178,25 @@ class PushService:
         must not break the action that triggered it."""
         if not user_ids:
             return 0
-        tokens = await self.repo.list_tokens_for_users(user_ids)
+        mute_column = _MUTE_COLUMN_BY_TYPE.get(message.message_type)
+        if mute_column:
+            tokens = await self.repo.list_tokens_for_users_not_muting(
+                user_ids, mute_column
+            )
+        else:
+            tokens = await self.repo.list_tokens_for_users(user_ids)
         return await self._dispatch(tokens, message)
 
     async def notify_all(self, message: PushMessage) -> int:
         """Broadcast to every registered device — platform-wide announcements
         (PLATFORM_PUSH) and the Hijri-offset change ping (HIJRI_OFFSET). Same
-        best-effort contract as ``notify_users``: never raises."""
-        tokens = await self.repo.list_all_tokens()
+        best-effort contract as ``notify_users``: never raises. PLATFORM_PUSH is
+        opt-out-able (mute_promotions); HIJRI_OFFSET is always-on."""
+        mute_column = _MUTE_COLUMN_BY_TYPE.get(message.message_type)
+        if mute_column:
+            tokens = await self.repo.list_all_tokens_not_muting(mute_column)
+        else:
+            tokens = await self.repo.list_all_tokens()
         return await self._dispatch(tokens, message)
 
     async def broadcast_platform_push(

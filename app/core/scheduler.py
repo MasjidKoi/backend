@@ -129,3 +129,16 @@ async def reap_push_receipts() -> None:
                 logger.info("Reaped %d dead device token(s) from push receipts", reaped)
 
     await _run_singleton("reap_push_receipts", 500, _run)
+
+
+async def purge_deleted_accounts() -> None:
+    """Anonymise soft-deleted accounts past the 30-day window (PRD 09 #1). Runs
+    daily; the per-account ``purged_at`` stamp makes it idempotent."""
+
+    async def _run() -> None:
+        async with async_session_maker() as db:
+            from app.services.account_purge_service import AccountPurgeService
+
+            await AccountPurgeService(db).run_due()
+
+    await _run_singleton("purge_deleted_accounts", 3600, _run)

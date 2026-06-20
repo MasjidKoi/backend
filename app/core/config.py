@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     # per-job lock guards against accidental duplication — see core/scheduler.py.
     SCHEDULER_ENABLED: bool = True
 
+    # PRD 09 #1 — days after a DELETE /users/me soft-delete before the purge job
+    # anonymises the account. The 202 response and settings copy promise 30.
+    ACCOUNT_PURGE_WINDOW_DAYS: int = 30
+
     # ── Database ──────────────────────────────────────────────────────────────
     # FastAPI connects through PgBouncer (transaction pool mode)
     DATABASE_URL: str

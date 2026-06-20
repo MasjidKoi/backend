@@ -47,6 +47,7 @@ from app.repositories.disbursement_repository import DisbursementRepository
 from app.repositories.donation_repository import DonationRepository
 from app.repositories.masjid_campaign_repository import MasjidCampaignRepository
 from app.repositories.masjid_repository import MasjidRepository
+from app.repositories.user_profile_repository import UserProfileRepository
 from app.schemas.disbursement import (
     BalanceListResponse,
     BalanceResponse,
@@ -87,6 +88,7 @@ class DonationService:
         self.masjid_repo = MasjidRepository(db)
         self.campaign_repo = MasjidCampaignRepository(db)
         self.disbursement_repo = DisbursementRepository(db)
+        self.profile_repo = UserProfileRepository(db)
         self.audit = AuditLogRepository(db)
         # Injectable so tests fake the gateway at its public seam.
         self.gateway = gateway or sslcommerz
@@ -115,7 +117,7 @@ class DonationService:
         masjid_id: uuid.UUID | None = None,
         amount: Decimal,
         category: str,
-        is_anonymous: bool,
+        is_anonymous: bool | None = None,
         donor_name: str | None = None,
         campaign_id: uuid.UUID | None = None,
     ) -> CheckoutResult:
@@ -178,6 +180,13 @@ class DonationService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This masjid is not accepting donations",
             )
+
+        # PRD 05 #3 — when the client doesn't state a preference, seed anonymity
+        # from the user's donate_anonymously_by_default setting; an explicit value
+        # always wins.
+        if is_anonymous is None:
+            profile = await self.profile_repo.get_or_create(user.user_id, user.email)
+            is_anonymous = profile.donate_anonymously_by_default
 
         donation = Donation(
             user_id=user.user_id,

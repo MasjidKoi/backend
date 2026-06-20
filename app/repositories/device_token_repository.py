@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, select
 
 from app.models.device_token import DeviceToken
+from app.models.user_profile import UserProfile
 from app.repositories.base import BaseRepository
 
 
@@ -66,6 +67,39 @@ class DeviceTokenRepository(BaseRepository[DeviceToken]):
         result = await self.db.execute(
             select(DeviceToken).where(DeviceToken.user_id.in_(list(user_ids)))
         )
+        return list(result.scalars().all())
+
+    def _not_muting_stmt(self, mute_column: str):
+        """Base SELECT for the push-gating queries: device tokens LEFT-JOINed to
+        their owner's profile, keeping only those NOT muting ``mute_column`` (a
+        UserProfile boolean column). ``isnot(True)`` keeps a device whose owner has
+        no profile row (NULL → treated as not-muted) and drops only an explicit
+        ``True``."""
+        column = getattr(UserProfile, mute_column)
+        return (
+            select(DeviceToken)
+            .outerjoin(UserProfile, UserProfile.user_id == DeviceToken.user_id)
+            .where(column.isnot(True))
+        )
+
+    async def list_tokens_for_users_not_muting(
+        self, user_ids: Sequence[uuid.UUID], mute_column: str
+    ) -> list[DeviceToken]:
+        """Like ``list_tokens_for_users`` but drops devices whose owner has opted
+        out of this message type (PRD 05 #4)."""
+        if not user_ids:
+            return []
+        result = await self.db.execute(
+            self._not_muting_stmt(mute_column).where(
+                DeviceToken.user_id.in_(list(user_ids))
+            )
+        )
+        return list(result.scalars().all())
+
+    async def list_all_tokens_not_muting(self, mute_column: str) -> list[DeviceToken]:
+        """Every registered device except those whose owner opted out of this
+        message type — backs a gateable platform broadcast (PRD 05 #4)."""
+        result = await self.db.execute(self._not_muting_stmt(mute_column))
         return list(result.scalars().all())
 
     async def list_for_user(self, user_id: uuid.UUID) -> list[DeviceToken]:

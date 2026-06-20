@@ -10,6 +10,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -48,6 +49,33 @@ class UserProfile(Base):
         Integer, server_default="19", nullable=False
     )
     last_digest_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # PRD 05 #3 — seeds DonationCreate.is_anonymous when the client omits it, so a
+    # user who wants every gift private doesn't re-toggle on each donation.
+    donate_anonymously_by_default: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("false"), nullable=False
+    )
+    # PRD 05 #4 / PRD 09 #28 — per-message-type push opt-outs. Each gates one
+    # group of non-essential pushes in PushService's fan-out; transactional /
+    # correctness pushes (donation confirmed, payment recovery, Hijri offset) have
+    # no switch by design, and masjid announcements/digest/time-change stay gated
+    # per-follow via notification_mode.
+    mute_donation_nudge: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("false"), nullable=False
+    )
+    mute_campaign_milestone: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("false"), nullable=False
+    )
+    mute_moderation_outcome: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("false"), nullable=False
+    )
+    mute_promotions: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("false"), nullable=False
+    )
+    # PRD 09 #1 — set by the purge job once a soft-deleted account is anonymized
+    # past the 30-day window; its presence makes the sweep idempotent.
+    purged_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(

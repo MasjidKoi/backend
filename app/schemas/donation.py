@@ -18,7 +18,9 @@ class DonationCreate(BaseModel):
 
     amount: DonationAmount
     category: DonationCategory = DonationCategory.GENERAL
-    is_anonymous: bool = False
+    # None ⇒ fall back to the user's donate_anonymously_by_default preference
+    # (PRD 05 #3); an explicit true/false always wins.
+    is_anonymous: bool | None = None
     # Collected once on first donation (PRD 01 deferral) so the receipt carries
     # the donor's legal name.
     donor_name: str | None = Field(default=None, max_length=255)
@@ -29,7 +31,8 @@ class CampaignDonationCreate(BaseModel):
     and the masjid is derived from the campaign."""
 
     amount: DonationAmount
-    is_anonymous: bool = False
+    # None ⇒ fall back to the donate_anonymously_by_default preference (PRD 05 #3).
+    is_anonymous: bool | None = None
     donor_name: str | None = Field(default=None, max_length=255)
 
 
