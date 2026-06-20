@@ -32,6 +32,7 @@ from app.routers import (
     events,
     feed,
     gamification,
+    goals,
     masjid_questions,
     masjid_submissions,
     masjids,
@@ -143,6 +144,7 @@ app.include_router(campaigns.router)
 app.include_router(co_admins.router)
 app.include_router(gamification.masjid_router)
 app.include_router(gamification.user_router)
+app.include_router(goals.router)
 app.include_router(support.user_router)
 app.include_router(support.admin_router)
 app.include_router(feed.router)

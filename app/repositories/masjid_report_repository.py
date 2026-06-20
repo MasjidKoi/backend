@@ -58,13 +58,27 @@ class MasjidReportRepository(BaseRepository[MasjidReport]):
         field_name: str,
         description: str,
         reporter_email: str | None,
+        user_id: uuid.UUID | None = None,
     ) -> MasjidReport:
         report = MasjidReport(
             masjid_id=masjid_id,
             field_name=field_name,
             description=description,
             reporter_email=reporter_email,
+            user_id=user_id,
         )
         self.db.add(report)
         await self.db.flush()
         return report
+
+    async def count_accepted_by_user(self, user_id: uuid.UUID) -> int:
+        """Resolved (accepted) reports attributed to this user — a Community
+        Pillar contribution input (PRD 08). A report only counts once a platform
+        admin has acted on it (status 'resolved')."""
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(MasjidReport)
+            .where(MasjidReport.user_id == user_id)
+            .where(MasjidReport.status == "resolved")
+        )
+        return result.scalar_one()

@@ -249,3 +249,48 @@ class BadgeType(StrEnum):
     FAJR_WARRIOR = "FajrWarrior"
     GENEROUS_GIVER = "GenerousGiver"
     COMMUNITY_PILLAR = "CommunityPillar"
+
+
+class GoalKind(StrEnum):
+    """The two shapes a gamification goal can take (PRD 08 §Goals).
+
+    QURAN_QUANTITY is a cumulative target in a Qur'an unit over a date window;
+    its progress is journal-fed (summed from matching-unit journal entries).
+    RECURRING is a daily/weekly check-off habit; its progress comes from
+    explicit completion rows.
+    """
+
+    QURAN_QUANTITY = "quran_quantity"
+    RECURRING = "recurring"
+
+
+class GoalStatus(StrEnum):
+    """Lifecycle of a goal (PRD 08 US #39 — pause/abandon without ceremony).
+
+    Completion of a quantity goal is *derived* from progress, not a stored
+    status — so the persisted lifecycle is just these three.
+    """
+
+    ACTIVE = "active"
+    PAUSED = "paused"
+    ABANDONED = "abandoned"
+
+
+class GoalRecurrence(StrEnum):
+    """Cadence of a recurring check-off goal (PRD 08 §Goals)."""
+
+    DAILY = "daily"
+    WEEKLY = "weekly"
+
+
+class GoalTemplateKey(StrEnum):
+    """Preset goal templates that lead the UI (PRD 08 §Goals).
+
+    KHATM_RAMADAN tracks 604 pages across a supplied Ramadan window with a
+    recomputed daily pace; AYAT_AL_KURSI is a daily check-off; SURAH_AL_KAHF is
+    a weekly (Jumu'ah) check-off.
+    """
+
+    KHATM_RAMADAN = "khatm_ramadan"
+    AYAT_AL_KURSI = "ayat_al_kursi"
+    SURAH_AL_KAHF = "surah_al_kahf"

@@ -27,6 +27,13 @@ class MasjidReport(Base):
         nullable=True,
         index=True,
     )
+    # Attributes a report to the authenticated submitter so an *accepted*
+    # (resolved) report can count toward Community Pillar (PRD 08). Nullable —
+    # guest reports stay allowed (the submit endpoint is public) and never count;
+    # bare UUID, no FK, matching the journal/badge user_id convention.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
     field_name: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     reporter_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
