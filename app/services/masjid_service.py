@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.security import CurrentUser
-from app.models.enums import MasjidStatus
+from app.models.enums import MasjidStatus, PhotoSource
 from app.models.masjid import Masjid
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.masjid_repository import MasjidRepository
@@ -355,9 +355,12 @@ class MasjidService:
                 if masjid.contact
                 else None
             ),
+            # Profile gallery is the curated admin photos only — community
+            # submissions surface through the dedicated community-photos listing.
             photos=[
                 PhotoResponse.model_validate(p, from_attributes=True)
                 for p in (masjid.photos or [])
+                if p.source == PhotoSource.ADMIN
             ],
         )
 

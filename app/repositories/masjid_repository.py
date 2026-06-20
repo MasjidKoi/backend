@@ -5,7 +5,7 @@ from geoalchemy2.functions import ST_Distance, ST_DWithin
 from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.orm import selectinload
 
-from app.models.enums import MasjidStatus
+from app.models.enums import MasjidStatus, PhotoSource
 from app.models.masjid import Masjid, MasjidContact, MasjidFacilities, MasjidPhoto
 from app.repositories.base import BaseRepository
 
@@ -61,6 +61,9 @@ class MasjidRepository(BaseRepository[Masjid]):
             select(MasjidPhoto.url)
             .where(MasjidPhoto.masjid_id == Masjid.masjid_id)
             .where(MasjidPhoto.is_cover.is_(True))
+            # Cover is an admin-gallery concept; community photos never set it,
+            # but scope explicitly so the index and intent are unambiguous.
+            .where(MasjidPhoto.source == PhotoSource.ADMIN)
             .limit(1)
             .scalar_subquery()
             .label("cover_photo_url")
