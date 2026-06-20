@@ -37,6 +37,31 @@ class AnnouncementRepository(BaseRepository[Announcement]):
         )
         return rows, count
 
+    async def count_published_since_for_masjids(
+        self,
+        masjid_ids: list[uuid.UUID],
+        since: datetime,
+        until: datetime,
+    ) -> tuple[int, int]:
+        """(announcement_count, distinct_masjid_count) of announcements published
+        in (since, until] across the given masjids — the digest collection.
+        `since` is exclusive so an announcement is digested exactly once."""
+        if not masjid_ids:
+            return 0, 0
+        result = await self.db.execute(
+            select(
+                func.count(),
+                func.count(func.distinct(Announcement.masjid_id)),
+            ).where(
+                Announcement.masjid_id.in_(masjid_ids),
+                Announcement.is_published == True,  # noqa: E712
+                Announcement.published_at > since,
+                Announcement.published_at <= until,
+            )
+        )
+        row = result.one()
+        return row[0], row[1]
+
     async def get_counts(self) -> tuple[int, int]:
         """Returns (total, published) announcement counts across all masjids."""
         result = await self.db.execute(

@@ -9,9 +9,11 @@ from app.repositories.masjid_repository import MasjidRepository
 from app.repositories.masjid_review_repository import MasjidReviewRepository
 from app.repositories.user_profile_repository import UserProfileRepository
 from app.schemas.masjid_review import (
+    LOW_STAR_MIN_BODY,
     MasjidReviewCreate,
     MasjidReviewListResponse,
     MasjidReviewResponse,
+    MasjidReviewUpsert,
 )
 
 
@@ -30,12 +32,25 @@ class MasjidReviewService:
                 detail="Access restricted to your own masjid",
             )
 
+    @staticmethod
+    def _validate_low_star_body(rating: int, body: str | None) -> None:
+        """1–2 star reviews must carry a short explanation; 3–5 may be stars-only."""
+        if rating <= 2 and len((body or "").strip()) < LOW_STAR_MIN_BODY:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"A {rating}-star review needs at least {LOW_STAR_MIN_BODY} "
+                    "characters explaining why."
+                ),
+            )
+
     async def submit_review(
         self,
         masjid_id: uuid.UUID,
         user: CurrentUser,
         data: MasjidReviewCreate,
     ) -> MasjidReviewResponse:
+        self._validate_low_star_body(data.rating, data.body)
         masjid = await self.masjid_repo.get_by_id(masjid_id)
         if not masjid:
             raise HTTPException(
@@ -52,6 +67,47 @@ class MasjidReviewService:
 
         profile = await self.profile_repo.get_by_user_id(user_uuid)
         display_name = profile.display_name if profile else None
+
+        review = MasjidReview(
+            masjid_id=masjid_id,
+            user_id=user_uuid,
+            rating=data.rating,
+            body=data.body,
+            reviewer_display_name=display_name,
+        )
+        await self.repo.add(review)
+        await self.repo.commit()
+        return MasjidReviewResponse.model_validate(review)
+
+    async def upsert_review(
+        self,
+        masjid_id: uuid.UUID,
+        user: CurrentUser,
+        data: MasjidReviewUpsert,
+    ) -> MasjidReviewResponse:
+        """Idempotent 'put my review' — create the caller's single review or fully
+        replace it, stamping `edited` on replacement."""
+        self._validate_low_star_body(data.rating, data.body)
+        masjid = await self.masjid_repo.get_by_id(masjid_id)
+        if not masjid:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Masjid not found"
+            )
+
+        user_uuid = uuid.UUID(str(user.user_id))
+        profile = await self.profile_repo.get_by_user_id(user_uuid)
+        display_name = profile.display_name if profile else None
+
+        existing = await self.repo.get_by_user_masjid(user_uuid, masjid_id)
+        if existing is not None:
+            existing.rating = data.rating
+            existing.body = data.body
+            existing.reviewer_display_name = display_name
+            existing.edited = True
+            await self.repo.commit()
+            # Reload — onupdate=func.now() expires updated_at after the flush.
+            review = await self.repo.get_by_id(existing.review_id)
+            return MasjidReviewResponse.model_validate(review)
 
         review = MasjidReview(
             masjid_id=masjid_id,

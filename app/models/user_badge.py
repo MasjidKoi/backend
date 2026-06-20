@@ -1,7 +1,15 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Index, String, UniqueConstraint, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Index,
+    SmallInteger,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -9,13 +17,21 @@ from app.db.base import Base
 
 
 class UserBadge(Base):
+    """A single earned milestone tier (PRD 08 BadgeEngine).
+
+    Uniqueness is per ``(user, badge_type, tier)`` — each tier of a family is
+    its own row, never re-awarded, lower tiers never skipped.
+    """
+
     __tablename__ = "user_badges"
     __table_args__ = (
         CheckConstraint(
             "badge_type IN ('FajrWarrior','GenerousGiver','CommunityPillar')",
             name="ck_user_badges_type",
         ),
-        UniqueConstraint("user_id", "badge_type", name="uq_user_badge_type"),
+        UniqueConstraint(
+            "user_id", "badge_type", "tier", name="uq_user_badge_type_tier"
+        ),
         Index("idx_user_badges_user", "user_id"),
     )
 
@@ -24,6 +40,7 @@ class UserBadge(Base):
     )
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     badge_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    tier: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     earned_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

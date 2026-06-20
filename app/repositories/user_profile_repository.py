@@ -55,6 +55,17 @@ class UserProfileRepository(BaseRepository[UserProfile]):
         rows = list((await self.db.execute(rows_q)).scalars().all())
         return rows, total
 
+    async def list_by_digest_hour(self, hour: int) -> list[UserProfile]:
+        """Non-deleted users whose chosen digest hour matches — the digest job's
+        candidate bucket for the current Asia/Dhaka hour."""
+        result = await self.db.execute(
+            select(UserProfile).where(
+                UserProfile.is_deleted == False,  # noqa: E712
+                UserProfile.digest_hour == hour,
+            )
+        )
+        return list(result.scalars().all())
+
     async def count_non_deleted(self) -> int:
         result = await self.db.execute(
             select(func.count()).where(UserProfile.is_deleted == False)  # noqa: E712

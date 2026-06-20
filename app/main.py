@@ -11,7 +11,11 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.middleware import LoggingMiddleware
-from app.core.scheduler import publish_scheduled_announcements, scheduler
+from app.core.scheduler import (
+    publish_scheduled_announcements,
+    scheduler,
+    send_daily_digests,
+)
 from app.db.session import async_session_maker
 from app.routers import (
     admin,
@@ -21,6 +25,7 @@ from app.routers import (
     co_admins,
     community_photos,
     events,
+    feed,
     gamification,
     masjid_questions,
     masjid_submissions,
@@ -44,6 +49,15 @@ async def lifespan(app: FastAPI):
         trigger="interval",
         minutes=1,
         id="publish_scheduled_announcements",
+        replace_existing=True,
+    )
+    # Digest job runs at the top of every hour; each run serves the bucket of
+    # users whose chosen digest hour matches the current Asia/Dhaka hour.
+    scheduler.add_job(
+        send_daily_digests,
+        trigger="cron",
+        minute=0,
+        id="send_daily_digests",
         replace_existing=True,
     )
     scheduler.start()
@@ -100,6 +114,7 @@ app.include_router(gamification.masjid_router)
 app.include_router(gamification.user_router)
 app.include_router(support.user_router)
 app.include_router(support.admin_router)
+app.include_router(feed.router)
 app.include_router(users.router)
 app.include_router(admin.router)
 

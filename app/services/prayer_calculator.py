@@ -10,9 +10,9 @@ adhan return keys: fajr, shuruq, zuhr (not dhuhr), asr, maghrib, isha
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import date, datetime
 from datetime import time as dt_time
-from dataclasses import dataclass
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.models.enums import CalculationMethod, Madhab

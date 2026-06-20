@@ -6,9 +6,18 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.core.security import CurrentUser
 from app.dependencies.auth import get_current_user
+from app.dependencies.notification_pref import get_notification_pref_service
+from app.dependencies.push import get_push_service
 from app.dependencies.storage import get_storage_service
 from app.dependencies.user import get_user_service
+from app.schemas.device_token import DeviceTokenRegister
+from app.schemas.notification import (
+    DigestHourUpdate,
+    NotificationPreferencesResponse,
+)
 from app.schemas.user import FavouriteMasjidResponse, MadhabhType, UserProfileResponse
+from app.services.notification_pref_service import NotificationPreferenceService
+from app.services.push_service import PushService
 from app.services.storage import StorageService
 from app.services.user_service import UserService
 
@@ -126,3 +135,60 @@ async def remove_favourite(
     service: UserService = Depends(get_user_service),
 ) -> None:
     await service.remove_favourite(user, masjid_id)
+
+
+# ── Push device registry ────────────────────────────────────────────────────
+
+
+@router.post(
+    "/me/devices",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Register / refresh this device's push token (idempotent per token)",
+)
+async def register_device(
+    body: DeviceTokenRegister,
+    user: CurrentUser = Depends(get_current_user),
+    push: PushService = Depends(get_push_service),
+) -> None:
+    await push.register_device(user.user_id, body.token, body.platform.value)
+
+
+@router.delete(
+    "/me/devices/{token}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Prune this device's push token on logout",
+)
+async def prune_device(
+    token: str,
+    user: CurrentUser = Depends(get_current_user),
+    push: PushService = Depends(get_push_service),
+) -> None:
+    await push.prune_device(user.user_id, token)
+
+
+# ── Notification preferences ──────────────────────────────────────────────────
+
+
+@router.get(
+    "/me/notification-preferences",
+    response_model=NotificationPreferencesResponse,
+    summary="Digest hour + per-followed-masjid notification mode",
+)
+async def get_notification_preferences(
+    user: CurrentUser = Depends(get_current_user),
+    service: NotificationPreferenceService = Depends(get_notification_pref_service),
+) -> NotificationPreferencesResponse:
+    return await service.get_preferences(user)
+
+
+@router.patch(
+    "/me/notification-preferences",
+    response_model=NotificationPreferencesResponse,
+    summary="Set the daily-digest delivery hour (0–23, Asia/Dhaka)",
+)
+async def update_digest_hour(
+    body: DigestHourUpdate,
+    user: CurrentUser = Depends(get_current_user),
+    service: NotificationPreferenceService = Depends(get_notification_pref_service),
+) -> NotificationPreferencesResponse:
+    return await service.set_digest_hour(user, body.digest_hour)

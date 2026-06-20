@@ -7,12 +7,12 @@ from app.core.security import CurrentUser
 from app.dependencies.auth import get_current_user
 from app.dependencies.gamification import get_gamification_service
 from app.schemas.gamification import (
-    BadgeResponse,
+    BadgeFamilyProgress,
     CheckInCreate,
     CheckInHistoryResponse,
     CheckInResponse,
-    JournalEntryCreate,
     JournalEntryResponse,
+    JournalEntryUpsert,
     JournalListResponse,
     StreakResponse,
 )
@@ -53,20 +53,20 @@ async def list_checkins(
 
 @user_router.get(
     "/badges",
-    response_model=list[BadgeResponse],
-    summary="List earned badges",
+    response_model=list[BadgeFamilyProgress],
+    summary="Badge gallery — earned tiers and progress to the next",
 )
 async def list_badges(
     user: CurrentUser = Depends(get_current_user),
     service: GamificationService = Depends(get_gamification_service),
-) -> list[BadgeResponse]:
+) -> list[BadgeFamilyProgress]:
     return await service.list_badges(user)
 
 
 @user_router.get(
     "/streak",
     response_model=StreakResponse,
-    summary="Current check-in streak and total",
+    summary="Journal-derived prayer streak (current, longest, freezes)",
 )
 async def get_streak(
     user: CurrentUser = Depends(get_current_user),
@@ -94,10 +94,10 @@ async def list_journal(
 @user_router.post(
     "/journal",
     response_model=JournalEntryResponse,
-    summary="Create or update a journal entry for a given date",
+    summary="Create or field-level update a journal entry for a given date",
 )
 async def upsert_journal(
-    body: JournalEntryCreate,
+    body: JournalEntryUpsert,
     user: CurrentUser = Depends(get_current_user),
     service: GamificationService = Depends(get_gamification_service),
 ) -> JournalEntryResponse:

@@ -29,3 +29,16 @@ class UserMasjidFollowService:
     async def get_follower_count(self, masjid_id: uuid.UUID) -> dict:
         count = await self.repo.count_by_masjid(masjid_id)
         return {"count": count}
+
+    async def set_notification_mode(
+        self, masjid_id: uuid.UUID, user: CurrentUser, mode: str
+    ) -> None:
+        follow = await self.repo.set_mode(
+            uuid.UUID(str(user.user_id)), masjid_id, mode
+        )
+        if follow is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="You are not following this masjid",
+            )
+        await self.repo.commit()

@@ -42,7 +42,9 @@ from app.schemas.masjid_review import (
     MasjidReviewCreate,
     MasjidReviewListResponse,
     MasjidReviewResponse,
+    MasjidReviewUpsert,
 )
+from app.schemas.notification import FollowModeUpdate
 from app.services.masjid_photo_service import MasjidPhotoService
 from app.services.masjid_report_service import MasjidReportService
 from app.services.masjid_review_service import MasjidReviewService
@@ -369,6 +371,22 @@ async def follow_masjid(
     )
 
 
+@router.patch(
+    "/{masjid_id}/follow",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Set per-masjid notification mode (digest|instant|mute) on my follow",
+)
+async def set_follow_notification_mode(
+    masjid_id: uuid.UUID,
+    body: FollowModeUpdate,
+    user: CurrentUser = Depends(get_current_user),
+    service: UserMasjidFollowService = Depends(get_follow_service),
+) -> None:
+    await service.set_notification_mode(
+        masjid_id, user, body.notification_mode.value
+    )
+
+
 @router.delete(
     "/{masjid_id}/follow",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -406,6 +424,20 @@ async def submit_review(
     service: MasjidReviewService = Depends(get_masjid_review_service),
 ) -> MasjidReviewResponse:
     return await service.submit_review(masjid_id, user, body)
+
+
+@router.put(
+    "/{masjid_id}/reviews",
+    response_model=MasjidReviewResponse,
+    summary="Create or replace my review for a masjid (authenticated)",
+)
+async def upsert_review(
+    masjid_id: uuid.UUID,
+    body: MasjidReviewUpsert,
+    user: CurrentUser = Depends(get_current_user),
+    service: MasjidReviewService = Depends(get_masjid_review_service),
+) -> MasjidReviewResponse:
+    return await service.upsert_review(masjid_id, user, body)
 
 
 @router.get(

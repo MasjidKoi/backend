@@ -3,8 +3,20 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# Low-star reviews must justify themselves: a 1–2 star rating requires a short
+# body so the warning helps others; 3–5 may be stars-only. Enforced in the
+# service (cross-field) rather than here so the error is a clean 422 detail.
+LOW_STAR_MIN_BODY = 20
+
 
 class MasjidReviewCreate(BaseModel):
+    rating: int = Field(..., ge=1, le=5)
+    body: str | None = Field(default=None, max_length=1000)
+
+
+class MasjidReviewUpsert(BaseModel):
+    """Body for PUT /masjids/{id}/reviews — create or fully replace my review."""
+
     rating: int = Field(..., ge=1, le=5)
     body: str | None = Field(default=None, max_length=1000)
 
@@ -18,7 +30,9 @@ class MasjidReviewResponse(BaseModel):
     rating: int
     body: str | None
     reviewer_display_name: str | None
+    edited: bool
     created_at: datetime
+    updated_at: datetime
 
 
 class MasjidReviewListResponse(BaseModel):

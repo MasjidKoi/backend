@@ -19,7 +19,6 @@ from app.schemas.announcement import (
     AnnouncementResponse,
     AnnouncementUpdate,
 )
-
 from app.services.announcement_service import AnnouncementService
 
 router = APIRouter(prefix="/masjids", tags=["announcements"])
