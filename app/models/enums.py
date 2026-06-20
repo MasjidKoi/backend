@@ -139,6 +139,11 @@ class PushMessageType(StrEnum):
     SUBMISSION_APPROVED = "submission_approved"
     PHOTO_APPROVED = "photo_approved"
     QNA_ANSWERED = "qna_answered"
+    # PRD 05 — donations
+    DONATION_CONFIRMED = "donation_confirmed"
+    PAYMENT_RECOVERY = "payment_recovery"
+    RECURRING_NUDGE = "recurring_nudge"
+    CAMPAIGN_MILESTONE = "campaign_milestone"
 
 
 class MadrashaStatus(StrEnum):
@@ -162,6 +167,33 @@ class DonationCategory(StrEnum):
     SADAQAH = "sadaqah"
     LILLAH = "lillah"
     CAMPAIGN = "campaign"
+
+
+class RecurringFrequency(StrEnum):
+    """Cadence of a recurring donation schedule (PRD 05).
+
+    NIGHTLY exists only for the date-bounded "last 10 nights" preset.
+    """
+
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+    NIGHTLY = "nightly"
+
+
+class RecurringScheduleStatus(StrEnum):
+    """Lifecycle of a recurring donation schedule (PRD 05)."""
+
+    ACTIVE = "active"
+    PAUSED = "paused"
+    CANCELLED = "cancelled"
+
+
+class DisbursementMethod(StrEnum):
+    """How the NGO paid a masjid out, recorded manually (PRD 05)."""
+
+    BANK = "bank"
+    BKASH = "bkash"
+    CASH = "cash"
 
 
 class Madhab(StrEnum):

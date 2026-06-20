@@ -10,8 +10,9 @@ cascades them away on teardown — no shared state between tests.
 import os
 import time
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from datetime import time as dtime
+from decimal import Decimal
 
 import jwt
 import pytest_asyncio
@@ -26,9 +27,13 @@ from app.db.session import get_db
 from app.main import app
 from app.models.announcement import Announcement
 from app.models.device_token import DeviceToken
+from app.models.disbursement import Disbursement
+from app.models.donation import Donation
 from app.models.masjid import Masjid
+from app.models.masjid_campaign import MasjidCampaign
 from app.models.masjid_event import EventRsvp, MasjidEvent
 from app.models.masjid_review import MasjidReview
+from app.models.recurring_schedule import RecurringSchedule
 from app.models.user_badge import UserBadge
 from app.models.user_checkin import UserCheckin
 from app.models.user_journal_entry import UserJournalEntry
@@ -50,22 +55,37 @@ TestSession = async_sessionmaker(
 )
 
 
-def make_token(user_id: uuid.UUID) -> str:
+def make_token(
+    user_id: uuid.UUID,
+    role: str = "app_user",
+    masjid_id: uuid.UUID | None = None,
+    aal: str = "aal1",
+) -> str:
+    app_metadata: dict = {"role": role}
+    if masjid_id is not None:
+        app_metadata["masjid_id"] = str(masjid_id)
     payload = {
         "sub": str(user_id),
         "aud": settings.GOTRUE_JWT_AUD,
         "email": f"{user_id}@test.local",
         "exp": int(time.time()) + 3600,
         "iat": int(time.time()),
-        "app_metadata": {"role": "app_user"},
+        "app_metadata": app_metadata,
         "role": "authenticated",
-        "aal": "aal1",
+        "aal": aal,
     }
     return jwt.encode(payload, settings.GOTRUE_JWT_SECRET, algorithm="HS256")
 
 
-def auth_headers(user_id: uuid.UUID) -> dict:
-    return {"Authorization": f"Bearer {make_token(user_id)}"}
+def auth_headers(
+    user_id: uuid.UUID,
+    role: str = "app_user",
+    masjid_id: uuid.UUID | None = None,
+    aal: str = "aal1",
+) -> dict:
+    return {
+        "Authorization": f"Bearer {make_token(user_id, role, masjid_id, aal)}"
+    }
 
 
 class Seeder:
@@ -76,7 +96,9 @@ class Seeder:
         self.masjid_ids: list[uuid.UUID] = []
         self.user_ids: list[uuid.UUID] = []
 
-    async def masjid(self, name: str = "Test Masjid") -> Masjid:
+    async def masjid(
+        self, name: str = "Test Masjid", *, donations_enabled: bool = False
+    ) -> Masjid:
         m = Masjid(
             name=name,
             address="123 Test Rd",
@@ -84,11 +106,35 @@ class Seeder:
             location=WKTElement("POINT(90.4 23.8)", srid=4326),
             status="active",
             verified=True,
+            donations_enabled=donations_enabled,
         )
         self.db.add(m)
         await self.db.flush()
         self.masjid_ids.append(m.masjid_id)
         return m
+
+    async def campaign(
+        self,
+        masjid_id: uuid.UUID,
+        *,
+        title: str = "Roof Fund",
+        target: str = "100000.00",
+        status: str = "Active",
+        days: int = 30,
+    ) -> MasjidCampaign:
+        today = datetime.now(timezone.utc).date()
+        c = MasjidCampaign(
+            masjid_id=masjid_id,
+            title=title,
+            target_amount=Decimal(target),
+            start_date=today - timedelta(days=1),
+            end_date=today + timedelta(days=days),
+            status=status,
+            created_by_id=uuid.uuid4(),
+        )
+        self.db.add(c)
+        await self.db.flush()
+        return c
 
     async def user(self, digest_hour: int = 19) -> uuid.UUID:
         uid = uuid.uuid4()
@@ -159,6 +205,12 @@ class Seeder:
 
     async def cleanup(self) -> None:
         for uid in self.user_ids:
+            # Donations/schedules first — donations FK masjid with RESTRICT, so
+            # they must clear before any masjid delete below.
+            await self.db.execute(delete(Donation).where(Donation.user_id == uid))
+            await self.db.execute(
+                delete(RecurringSchedule).where(RecurringSchedule.user_id == uid)
+            )
             await self.db.execute(delete(EventRsvp).where(EventRsvp.user_id == uid))
             await self.db.execute(
                 delete(UserMasjidFollow).where(UserMasjidFollow.user_id == uid)
@@ -174,7 +226,13 @@ class Seeder:
             await self.db.execute(delete(UserCheckin).where(UserCheckin.user_id == uid))
             await self.db.execute(delete(UserProfile).where(UserProfile.user_id == uid))
         for mid in self.masjid_ids:
-            # Masjid FKs cascade to announcements/events/follows/reviews.
+            # disbursements + any stray donations RESTRICT the masjid FK, so they
+            # must clear before the cascade delete of the masjid itself.
+            await self.db.execute(
+                delete(Disbursement).where(Disbursement.masjid_id == mid)
+            )
+            await self.db.execute(delete(Donation).where(Donation.masjid_id == mid))
+            # Masjid FKs cascade to announcements/events/follows/reviews/campaigns.
             await self.db.execute(delete(Masjid).where(Masjid.masjid_id == mid))
         await self.db.commit()
 

@@ -15,6 +15,8 @@ from app.core.scheduler import (
     publish_scheduled_announcements,
     scheduler,
     send_daily_digests,
+    send_recurring_donation_nudges,
+    sweep_stale_pending_donations,
 )
 from app.db.session import async_session_maker
 from app.routers import (
@@ -24,12 +26,14 @@ from app.routers import (
     campaigns,
     co_admins,
     community_photos,
+    donations,
     events,
     feed,
     gamification,
     masjid_questions,
     masjid_submissions,
     masjids,
+    payments,
     prayer_times,
     support,
     users,
@@ -58,6 +62,24 @@ async def lifespan(app: FastAPI):
         trigger="cron",
         minute=0,
         id="send_daily_digests",
+        replace_existing=True,
+    )
+    # Recurring-donation nudges: every 15 minutes, fire pushes for schedules
+    # whose next_due_at has passed (PRD 05).
+    scheduler.add_job(
+        send_recurring_donation_nudges,
+        trigger="interval",
+        minutes=15,
+        id="send_recurring_donation_nudges",
+        replace_existing=True,
+    )
+    # Stale-pending sweep: hourly, expire abandoned PENDING donations to FAILED
+    # and send one recovery push each (PRD 05).
+    scheduler.add_job(
+        sweep_stale_pending_donations,
+        trigger="interval",
+        hours=1,
+        id="sweep_stale_pending_donations",
         replace_existing=True,
     )
     scheduler.start()
@@ -117,6 +139,12 @@ app.include_router(support.admin_router)
 app.include_router(feed.router)
 app.include_router(users.router)
 app.include_router(admin.router)
+# Donations: user dashboard + admin views, and the unauthenticated SSLCommerz
+# IPN/redirect callbacks. Static path segments (/donations, /payments) keep these
+# from colliding with /masjids/{masjid_id} and /admin/* dynamic routes.
+app.include_router(donations.user_router)
+app.include_router(donations.admin_router)
+app.include_router(payments.router)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
