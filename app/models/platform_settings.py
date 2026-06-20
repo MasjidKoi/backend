@@ -30,6 +30,12 @@ class PlatformSettings(Base):
     checkins_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True
     )
+    # PRD 05 — gates tax-deductibility wording on donation receipts. The NGO
+    # flips this to true only once its NBR (tax authority) approval is confirmed;
+    # until then no receipt in a donor's name makes a false legal claim.
+    tax_deductible_receipts_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     # FR-T40-139 — Branding
     platform_name: Mapped[str] = mapped_column(
         String(100), nullable=False, default="MasjidKoi"

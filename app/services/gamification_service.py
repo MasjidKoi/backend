@@ -11,6 +11,7 @@ from app.core.time import DHAKA_TZ
 from app.models.enums import MasjidStatus
 from app.models.user_badge import UserBadge
 from app.models.user_journal_entry import UserJournalEntry
+from app.repositories.donation_repository import DonationRepository
 from app.repositories.masjid_repository import MasjidRepository
 from app.repositories.user_badge_repository import UserBadgeRepository
 from app.repositories.user_checkin_repository import UserCheckinRepository
@@ -56,6 +57,7 @@ class GamificationService:
         self.badge_repo = UserBadgeRepository(db)
         self.journal_repo = UserJournalRepository(db)
         self.masjid_repo = MasjidRepository(db)
+        self.donation_repo = DonationRepository(db)
 
     # ── Check-ins ───────────────────────────────────────────────────────────
 
@@ -265,15 +267,27 @@ class GamificationService:
         since = now.astimezone(DHAKA_TZ).date() - timedelta(days=LOOKBACK_DAYS)
         entries = await self.journal_repo.get_day_records(user_id, since=since)
         today = now.astimezone(DHAKA_TZ).date()
+        giving_months = await self.donation_repo.completed_giving_months(user_id)
         return BadgeCounters(
             consecutive_fajr_days=_consecutive_fajr(entries, today),
-            # Dormant until the donation system (#11) lands.
-            consecutive_giving_months=0,
+            # Activated by PRD 05 — consecutive Dhaka-calendar months with at
+            # least one completed donation (consistency, never amount).
+            consecutive_giving_months=_consecutive_giving_months(giving_months),
             # Verified-contribution points. v0 counts check-ins ONLY; accepted
             # info reports and approved community photos are part of the Community
             # Pillar criterion (see BadgeEngine) but are not yet summed here.
             contribution_points=await self.checkin_repo.count_by_user(user_id),
         )
+
+    async def reevaluate_badges(
+        self, user_id: uuid.UUID, now: datetime | None = None
+    ) -> list[UserBadge]:
+        """Public hook for other subsystems (e.g. donation completion) to award
+        any newly-reached badge tiers and commit. Best-effort by contract — the
+        caller wraps it so a badge failure never undoes its own write."""
+        created = await self._evaluate_badges(user_id, now=now)
+        await self.badge_repo.commit()
+        return created
 
     async def _evaluate_badges(
         self, user_id: uuid.UUID, now: datetime | None = None
@@ -309,6 +323,26 @@ def _consecutive_fajr(entries: list[UserJournalEntry], today) -> int:
     while cursor in fajr_dates:
         count += 1
         cursor -= timedelta(days=1)
+    return count
+
+
+def _prev_month(ym: tuple[int, int]) -> tuple[int, int]:
+    year, month = ym
+    return (year - 1, 12) if month == 1 else (year, month - 1)
+
+
+def _consecutive_giving_months(months: set[tuple[int, int]]) -> int:
+    """The contiguous run of donation months ending at the most recent one (no
+    calendar-month gap). Mirrors ``_consecutive_fajr`` — evaluated at completion
+    time, the run ends at the just-completed donation's month, so a tier is
+    awarded the moment its streak is reached and the award then persists."""
+    if not months:
+        return 0
+    cursor = max(months)
+    count = 0
+    while cursor in months:
+        count += 1
+        cursor = _prev_month(cursor)
     return count
 
 

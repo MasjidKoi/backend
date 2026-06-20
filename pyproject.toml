@@ -28,6 +28,7 @@ dependencies = [
     "aiosmtplib>=3.0.0",       # Async SMTP for reporter email notifications
     "redis[asyncio]>=5.0.0",   # Redis client for rate limiting and caching
     "apscheduler>=3.10.4,<4.0.0",  # Background cron jobs (scheduled announcement publish)
+    "weasyprint>=69.0",
 ]
 
 [dependency-groups]

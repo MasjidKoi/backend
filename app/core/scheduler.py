@@ -44,3 +44,21 @@ async def send_daily_digests() -> None:
         from app.services.digest_service import DigestService
 
         await DigestService(db).run_due()
+
+
+async def send_recurring_donation_nudges() -> None:
+    """Fire one push per due recurring-donation schedule and advance it to the
+    next cycle, collapsing any missed cycles (PRD 05). Never auto-charges."""
+    async with async_session_maker() as db:
+        from app.services.recurring_schedule_service import RecurringScheduleService
+
+        await RecurringScheduleService(db).run_due_nudges()
+
+
+async def sweep_stale_pending_donations() -> None:
+    """Expire donations stuck PENDING > 24h to FAILED and send one recovery push
+    each (PRD 05). The FAILED status itself ensures the push never repeats."""
+    async with async_session_maker() as db:
+        from app.services.donation_service import DonationService
+
+        await DonationService(db).sweep_stale_pending()

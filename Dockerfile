@@ -25,6 +25,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH"
 
+# weasyprint native deps (PRD 05 donation receipts) — Pango/Cairo + base fonts.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpango-1.0-0 \
+        libpangoft2-1.0-0 \
+        libharfbuzz0b \
+        libffi8 \
+        fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
 # Non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 

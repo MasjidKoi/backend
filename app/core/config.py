@@ -50,6 +50,31 @@ class Settings(BaseSettings):
     # ── Redis ─────────────────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://redis:6379/0"
 
+    # ── SSLCommerz payment gateway (PRD 05) ─────────────────────────────────────────
+    # The NGO is the single merchant of record — one pooled account, per-masjid
+    # attribution in our ledger. Sandbox by default; production overrides the
+    # store credentials and base URL via .env. Never hard-code these.
+    SSLCOMMERZ_STORE_ID: SecretStr = SecretStr("")  # type: ignore[assignment]
+    SSLCOMMERZ_STORE_PASSWORD: SecretStr = SecretStr("")  # type: ignore[assignment]
+    SSLCOMMERZ_BASE_URL: AnyHttpUrl = "https://sandbox.sslcommerz.com"  # type: ignore[assignment]
+    # Pre-confirm "masjid receives ~৳X" estimate only. The ledger stores the
+    # actual fee from the validated IPN (store_amount); the two may differ by a
+    # taka or two, so donor-facing copy says "approx".
+    SSLCOMMERZ_FEE_RATE: float = 0.025
+    # Public URL FastAPI is reachable at — used to build the success/fail/cancel/IPN
+    # callback URLs handed to the gateway. Must be publicly reachable in production.
+    PUBLIC_API_BASE_URL: AnyHttpUrl = "http://localhost:8000"  # type: ignore[assignment]
+    # Mobile deep-link scheme for post-payment redirects:
+    # {scheme}://donation/{donation_id}?status={success|fail|cancel}
+    APP_DEEP_LINK_SCHEME: str = "masjidkoi"
+
+    # ── NGO identity (PRD 05 receipts) ──────────────────────────────────────────
+    # Printed on every acknowledgment PDF. Registration number is blank until the
+    # NGO supplies it; tax-deductibility wording is separately gated by the
+    # platform-settings flag.
+    NGO_NAME: str = "MasjidKoi Foundation"
+    NGO_REGISTRATION_NUMBER: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -76,6 +101,22 @@ class Settings(BaseSettings):
     @property
     def aws_secret(self) -> str:
         return self.AWS_SECRET_ACCESS_KEY.get_secret_value()
+
+    @property
+    def sslcommerz_base_url(self) -> str:
+        return str(self.SSLCOMMERZ_BASE_URL).rstrip("/")
+
+    @property
+    def sslcommerz_store_id(self) -> str:
+        return self.SSLCOMMERZ_STORE_ID.get_secret_value()
+
+    @property
+    def sslcommerz_store_password(self) -> str:
+        return self.SSLCOMMERZ_STORE_PASSWORD.get_secret_value()
+
+    @property
+    def public_api_base_url(self) -> str:
+        return str(self.PUBLIC_API_BASE_URL).rstrip("/")
 
 
 settings = Settings()

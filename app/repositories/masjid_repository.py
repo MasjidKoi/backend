@@ -15,6 +15,19 @@ class MasjidRepository(BaseRepository[Masjid]):
 
     # ── Reads ──────────────────────────────────────────────────────────────────
 
+    async def names_by_ids(
+        self, masjid_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, str]:
+        """Resolve many masjid names in one query (avoids N+1 in balance views)."""
+        if not masjid_ids:
+            return {}
+        result = await self.db.execute(
+            select(Masjid.masjid_id, Masjid.name).where(
+                Masjid.masjid_id.in_(masjid_ids)
+            )
+        )
+        return {mid: name for mid, name in result.all()}
+
     async def get_by_id_with_relations(self, masjid_id: uuid.UUID) -> Masjid | None:
         """Full profile: masjid + facilities + contact + photos via selectinload."""
         result = await self.db.execute(
