@@ -212,28 +212,29 @@ class SslcommerzGateway:
                     params=params,
                 )
         except httpx.HTTPError as exc:
-            logger.error("SSLCommerz validate_ipn transport error: %s", exc)
+            logger.error(
+                "SSLCommerz validate_ipn transport error (val_id=%s): %s", val_id, exc
+            )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Payment validation unreachable",
             ) from exc
 
         if not resp.is_success:
+            # A non-2xx from the validator is a transient/transport-class failure,
+            # NOT a verdict that the payment is invalid. Raise so the IPN handler
+            # returns "retry" (503) and SSLCommerz re-delivers — never silently
+            # mark a genuinely-paid donation FAILED on a validator blip. Only a
+            # 2xx response carrying a non-VALID status is a true "invalid" verdict.
             logger.error(
-                "SSLCommerz validate_ipn HTTP %s: %s", resp.status_code, resp.text
+                "SSLCommerz validate_ipn HTTP %s (val_id=%s): %s",
+                resp.status_code,
+                val_id,
+                resp.text,
             )
-            return ValidationResult(
-                is_valid=False,
-                status=f"http_{resp.status_code}",
-                tran_id="",
-                gross=Decimal("0.00"),
-                net=Decimal("0.00"),
-                fee=Decimal("0.00"),
-                currency="",
-                store_id="",
-                bank_tran_id=None,
-                payment_method=None,
-                raw={},
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Payment validation unreachable",
             )
 
         body = resp.json()

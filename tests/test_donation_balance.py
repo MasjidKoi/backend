@@ -14,10 +14,22 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.models.enums import DonationStatus
+from app.core.security import CurrentUser
+from app.models.audit_log import AuditLog
+from app.models.enums import AdminRole, AuthAssuranceLevel, DonationStatus
 from app.models.masjid_campaign import MasjidCampaign
 from app.services.donation_service import DonationService
 from tests.test_donation_ledger import FakeGateway, _user
+
+
+def _admin() -> CurrentUser:
+    return CurrentUser(
+        user_id=uuid.uuid4(),
+        email="admin@masjidkoi.test",
+        role=AdminRole.PLATFORM_ADMIN,
+        aal=AuthAssuranceLevel.AAL1,
+    )
+
 
 pytestmark = pytest.mark.asyncio
 
@@ -91,6 +103,40 @@ async def test_record_disbursement_rejects_nonpositive(db, seed):
     assert exc.value.status_code == 422
 
 
+async def test_refund_and_disbursement_write_audit_log(db, seed):
+    """Money-moving admin actions leave an append-only audit record (who/what/
+    why/ip), so a refund or payout is reconcilable beyond the structured log."""
+    uid = await seed.user()
+    masjid = await seed.masjid(donations_enabled=True)
+    admin = _admin()
+    svc = DonationService(db, gateway=FakeGateway())
+
+    done = await _complete_donation(db, svc, uid, masjid.masjid_id, "500")
+    await svc.refund(
+        done.donation_id, reason="duplicate", actor=admin, ip_address="1.2.3.4"
+    )
+    await svc.record_disbursement(
+        masjid_id=masjid.masjid_id,
+        amount=Decimal("100"),
+        method="bank",
+        disbursed_on=date(2026, 6, 1),
+        recorded_by_id=admin.user_id,
+        actor=admin,
+        ip_address="1.2.3.4",
+    )
+
+    rows = (
+        (await db.execute(select(AuditLog).where(AuditLog.admin_id == admin.user_id)))
+        .scalars()
+        .all()
+    )
+    assert {r.action for r in rows} == {"refund_donation", "record_disbursement"}
+    refund_row = next(r for r in rows if r.action == "refund_donation")
+    assert refund_row.target_id == done.donation_id
+    assert refund_row.ip_address == "1.2.3.4"
+    assert refund_row.details["reason"] == "duplicate"
+
+
 # ── Refund ────────────────────────────────────────────────────────────────
 
 
@@ -113,7 +159,7 @@ async def test_refund_reverses_campaign_and_balance(db, seed):
     ).scalar_one()
     assert bumped.raised_amount == Decimal("500.00")
 
-    refunded = await svc.refund(done, reason="duplicate")
+    refunded = await svc.refund(done.donation_id, reason="duplicate")
     assert refunded.status == DonationStatus.REFUNDED.value
     assert refunded.refunded_at is not None
 
@@ -146,7 +192,7 @@ async def test_refund_can_drive_balance_negative(db, seed):
     assert await svc.balance_of(masjid.masjid_id) == Decimal("0.00")
 
     # ...then a refund drives the balance negative (offsets future giving).
-    await svc.refund(done, reason="chargeback")
+    await svc.refund(done.donation_id, reason="chargeback")
     assert await svc.balance_of(masjid.masjid_id) == Decimal("-487.75")
 
 
@@ -164,5 +210,5 @@ async def test_refund_only_from_completed(db, seed):
         )
     ).donation
     with pytest.raises(HTTPException) as exc:
-        await svc.refund(created)
+        await svc.refund(created.donation_id)
     assert exc.value.status_code == 409

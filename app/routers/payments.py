@@ -50,7 +50,9 @@ async def sslcommerz_ipn(
     val_id = str(form.get("val_id", ""))
     tran_id = str(form.get("tran_id", ""))
     if not val_id or not tran_id:
-        logger.warning("IPN missing val_id/tran_id: %s", dict(form))
+        # Log field names only — never the full form body (it can carry card /
+        # account fragments and the gateway's own identifiers) on a payment surface.
+        logger.warning("IPN missing val_id/tran_id; fields=%s", sorted(form.keys()))
         # Malformed — don't ask the gateway to retry.
         return JSONResponse({"status": "ignored"}, status_code=status.HTTP_200_OK)
 

@@ -49,46 +49,53 @@ async def lifespan(app: FastAPI):
     app.state.redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
     logger.info("Redis connection pool created")
 
-    scheduler.add_job(
-        publish_scheduled_announcements,
-        trigger="interval",
-        minutes=1,
-        id="publish_scheduled_announcements",
-        replace_existing=True,
-    )
-    # Digest job runs at the top of every hour; each run serves the bucket of
-    # users whose chosen digest hour matches the current Asia/Dhaka hour.
-    scheduler.add_job(
-        send_daily_digests,
-        trigger="cron",
-        minute=0,
-        id="send_daily_digests",
-        replace_existing=True,
-    )
-    # Recurring-donation nudges: every 15 minutes, fire pushes for schedules
-    # whose next_due_at has passed (PRD 05).
-    scheduler.add_job(
-        send_recurring_donation_nudges,
-        trigger="interval",
-        minutes=15,
-        id="send_recurring_donation_nudges",
-        replace_existing=True,
-    )
-    # Stale-pending sweep: hourly, expire abandoned PENDING donations to FAILED
-    # and send one recovery push each (PRD 05).
-    scheduler.add_job(
-        sweep_stale_pending_donations,
-        trigger="interval",
-        hours=1,
-        id="sweep_stale_pending_donations",
-        replace_existing=True,
-    )
-    scheduler.start()
-    logger.info("APScheduler started")
+    # Scheduler runs on exactly one instance (see settings.SCHEDULER_ENABLED).
+    # Jobs additionally self-guard with a Redis lock, so an accidental second
+    # runner won't duplicate fan-out.
+    if settings.SCHEDULER_ENABLED:
+        scheduler.add_job(
+            publish_scheduled_announcements,
+            trigger="interval",
+            minutes=1,
+            id="publish_scheduled_announcements",
+            replace_existing=True,
+        )
+        # Digest job runs at the top of every hour; each run serves the bucket of
+        # users whose chosen digest hour matches the current Asia/Dhaka hour.
+        scheduler.add_job(
+            send_daily_digests,
+            trigger="cron",
+            minute=0,
+            id="send_daily_digests",
+            replace_existing=True,
+        )
+        # Recurring-donation nudges: every 15 minutes, fire pushes for schedules
+        # whose next_due_at has passed (PRD 05).
+        scheduler.add_job(
+            send_recurring_donation_nudges,
+            trigger="interval",
+            minutes=15,
+            id="send_recurring_donation_nudges",
+            replace_existing=True,
+        )
+        # Stale-pending sweep: hourly, expire abandoned PENDING donations to FAILED
+        # and send one recovery push each (PRD 05).
+        scheduler.add_job(
+            sweep_stale_pending_donations,
+            trigger="interval",
+            hours=1,
+            id="sweep_stale_pending_donations",
+            replace_existing=True,
+        )
+        scheduler.start()
+        logger.info("APScheduler started")
+    else:
+        logger.info("Scheduler disabled on this instance (SCHEDULER_ENABLED=false)")
 
     yield
 
-    scheduler.shutdown(wait=False)
+    if settings.SCHEDULER_ENABLED:
+        scheduler.shutdown(wait=False)
     await app.state.redis.aclose()
     logger.info("Scheduler and Redis stopped")
 

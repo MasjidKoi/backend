@@ -194,12 +194,16 @@ async def test_validate_ipn_store_mismatch_not_valid():
     assert r.is_valid is False
 
 
-async def test_validate_ipn_http_error_not_valid():
+async def test_validate_ipn_http_error_is_retryable():
+    # A non-2xx from the validator is transient, NOT an "invalid payment" verdict:
+    # it must raise (→ IPN handler returns 503 "retry"), never silently fail a
+    # genuinely-paid donation.
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, text="validator down")
 
-    r = await _gateway(handler).validate_ipn("VAL-1")
-    assert r.is_valid is False
+    with pytest.raises(HTTPException) as exc:
+        await _gateway(handler).validate_ipn("VAL-1")
+    assert exc.value.status_code == 502
 
 
 # ── refund ────────────────────────────────────────────────────────────────

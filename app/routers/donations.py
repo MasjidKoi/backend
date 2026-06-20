@@ -9,7 +9,7 @@ decision lives in DonationService. The IPN webhook and gateway redirects live in
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 
 from app.core.security import CurrentUser
 from app.dependencies.auth import (
@@ -321,6 +321,7 @@ async def admin_all_balances(
 async def admin_record_disbursement(
     masjid_id: uuid.UUID,
     body: DisbursementCreate,
+    request: Request,
     user: CurrentUser = Depends(require_platform_admin),
     service: DonationService = Depends(get_donation_service),
 ) -> DisbursementResponse:
@@ -332,6 +333,8 @@ async def admin_record_disbursement(
         recorded_by_id=user.user_id,
         reference=body.reference,
         notes=body.notes,
+        actor=user,
+        ip_address=request.client.host if request.client else None,
     )
     return DisbursementResponse(
         disbursement_id=d.disbursement_id,
@@ -353,7 +356,13 @@ async def admin_record_disbursement(
 async def admin_refund_donation(
     donation_id: uuid.UUID,
     body: RefundRequest,
-    _user: CurrentUser = Depends(require_platform_admin),
+    request: Request,
+    user: CurrentUser = Depends(require_platform_admin),
     service: DonationService = Depends(get_donation_service),
 ) -> DonationStatusResponse:
-    return await service.refund_by_id(donation_id, body.reason)
+    return await service.refund_by_id(
+        donation_id,
+        body.reason,
+        actor=user,
+        ip_address=request.client.host if request.client else None,
+    )

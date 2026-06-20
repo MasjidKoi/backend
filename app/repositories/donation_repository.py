@@ -99,8 +99,12 @@ class DonationRepository(BaseRepository[Donation]):
     async def list_stale_pending(
         self, cutoff: datetime, limit: int = 500
     ) -> list[Donation]:
-        """PENDING donations older than the cutoff — the stale-pending sweep
-        fails these and sends one recovery push. Once FAILED they're never
+        """Lock PENDING donations older than the cutoff for the stale-pending
+        sweep. ``FOR UPDATE SKIP LOCKED`` means a donation an IPN is mid-completing
+        (it holds its own row lock) is skipped, never clobbered — and a donation
+        completed-and-committed just before is excluded by the status predicate.
+        The caller MUST flip these to FAILED and commit in the SAME transaction,
+        so the lock window covers the read-modify-write. Once FAILED they're never
         selected again, so the recovery push never repeats."""
         rows = await self.db.execute(
             select(Donation)
@@ -110,6 +114,7 @@ class DonationRepository(BaseRepository[Donation]):
             )
             .order_by(Donation.created_at.asc())
             .limit(limit)
+            .with_for_update(skip_locked=True)
         )
         return list(rows.scalars().all())
 
