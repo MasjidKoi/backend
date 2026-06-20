@@ -77,6 +77,7 @@ class UserService:
             madhab=profile.madhab,
             profile_photo_url=profile.profile_photo_url,
             is_deleted=profile.is_deleted,
+            donate_anonymously_by_default=profile.donate_anonymously_by_default,
             created_at=profile.created_at,
             updated_at=profile.updated_at,
         )

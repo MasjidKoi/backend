@@ -12,8 +12,8 @@ from app.dependencies.storage import get_storage_service
 from app.dependencies.user import get_user_service
 from app.schemas.device_token import DeviceTokenRegister
 from app.schemas.notification import (
-    DigestHourUpdate,
     NotificationPreferencesResponse,
+    NotificationPreferencesUpdate,
 )
 from app.schemas.user import FavouriteMasjidResponse, MadhabhType, UserProfileResponse
 from app.services.notification_pref_service import NotificationPreferenceService
@@ -184,11 +184,11 @@ async def get_notification_preferences(
 @router.patch(
     "/me/notification-preferences",
     response_model=NotificationPreferencesResponse,
-    summary="Set the daily-digest delivery hour (0–23, Asia/Dhaka)",
+    summary="Update digest hour, donate-anonymously default, and push opt-outs",
 )
-async def update_digest_hour(
-    body: DigestHourUpdate,
+async def update_notification_preferences(
+    body: NotificationPreferencesUpdate,
     user: CurrentUser = Depends(get_current_user),
     service: NotificationPreferenceService = Depends(get_notification_pref_service),
 ) -> NotificationPreferencesResponse:
-    return await service.set_digest_hour(user, body.digest_hour)
+    return await service.update_preferences(user, body.model_dump(exclude_unset=True))

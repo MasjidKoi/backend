@@ -13,6 +13,7 @@ from app.core.logging import setup_logging
 from app.core.middleware import LoggingMiddleware
 from app.core.scheduler import (
     publish_scheduled_announcements,
+    purge_deleted_accounts,
     reap_push_receipts,
     scheduler,
     send_daily_digests,
@@ -98,6 +99,17 @@ async def lifespan(app: FastAPI):
             trigger="interval",
             minutes=10,
             id="reap_push_receipts",
+            replace_existing=True,
+        )
+        # Account-deletion purge: daily at 03:30 UTC, anonymise soft-deleted
+        # accounts past the 30-day window (PRD 09 #1). The window is in days, so a
+        # daily tick is fine; the per-account purged_at stamp keeps it idempotent.
+        scheduler.add_job(
+            purge_deleted_accounts,
+            trigger="cron",
+            hour=3,
+            minute=30,
+            id="purge_deleted_accounts",
             replace_existing=True,
         )
         scheduler.start()

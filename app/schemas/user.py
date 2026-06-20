@@ -14,6 +14,7 @@ class UserProfileResponse(BaseModel):
     madhab: str | None
     profile_photo_url: str | None
     is_deleted: bool
+    donate_anonymously_by_default: bool
     created_at: datetime
     updated_at: datetime
 
