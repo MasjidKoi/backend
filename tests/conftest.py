@@ -40,6 +40,10 @@ from app.models.user_journal_entry import UserJournalEntry
 from app.models.user_masjid_follow import UserMasjidFollow
 from app.models.user_profile import UserProfile
 
+# Force the no-op push transport for the whole suite, regardless of what `.env`
+# sets `PUSH_ENABLED` to — tests must never hit the live Expo Push Service.
+settings.PUSH_ENABLED = False
+
 TEST_DB_URL = os.getenv(
     "TEST_DATABASE_URL",
     "postgresql+asyncpg://masjidkoi:masjidkoi@localhost:5432/masjidkoi",

@@ -1,8 +1,8 @@
 """BadgeEngine — tiered private milestone badges (PRD 08, gap #19).
 
 Pure, deterministic, idempotent: ``evaluate(counters, already_awarded) ->
-list[Award]``. Tier thresholds, no-skipped-tiers, and the dormant Generous
-Giver criterion live here and only here; the service supplies counters and
+list[Award]``. Tier thresholds, no-skipped-tiers, and the Generous Giver
+criterion live here and only here; the service supplies counters and
 persists the returned awards. The committed tests in
 ``tests/test_badge_engine.py`` are the spec.
 
@@ -11,9 +11,9 @@ Three families, each on resonant milestone numbers:
 - **Fajr Warrior** — 7 / 40 / 100 consecutive logged-Fajr days (40 carries
   religious weight).
 - **Generous Giver** — 3 / 6 / 12 consecutive months containing at least one
-  donation of any amount (**consistency, never amount**). **Ships dormant**: the
-  counter is 0 until the donation system (#11) lands, so the criterion is
-  encoded now and activates as data, not code.
+  donation of any amount (**consistency, never amount**). **Active** since the
+  PRD 05 donation system landed: donation completion feeds the consecutive-
+  giving-months counter and re-evaluates this family.
 - **Community Pillar** — accumulated verified-contribution points (check-ins,
   accepted info reports, approved community photos). The point weights are an
   implementer choice and live with the service that builds the counter; the
@@ -42,7 +42,7 @@ class BadgeCounters:
     """The progress signals each family is awarded against."""
 
     consecutive_fajr_days: int = 0
-    consecutive_giving_months: int = 0  # dormant until donations (#11) land
+    consecutive_giving_months: int = 0  # fed by donation completion (PRD 05)
     contribution_points: int = 0
 
 

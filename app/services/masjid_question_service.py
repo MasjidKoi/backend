@@ -6,7 +6,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import CurrentUser
-from app.models.enums import QuestionStatus
+from app.models.enums import PushMessageType, QuestionStatus
 from app.models.masjid_question import MasjidQuestion
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.co_admin_invite_repository import CoAdminInviteRepository
@@ -25,6 +25,7 @@ from app.services.moderation_routing import (
     can_moderate,
     ngo_pending_cutoff,
 )
+from app.services.push_service import PushMessage, PushService
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ _WINDOW = timedelta(hours=24)
 
 class MasjidQuestionService:
     def __init__(self, db: AsyncSession) -> None:
+        self.db = db
         self.repo = MasjidQuestionRepository(db)
         self.masjid_repo = MasjidRepository(db)
         self.co_admin = CoAdminInviteRepository(db)
@@ -211,8 +213,20 @@ class MasjidQuestionService:
         )
         await self.repo.commit()
         await self.repo.refresh(question)
-        # TODO(#6): notify the asker with a `qna-answered` push once the push
-        # subsystem lands.
+        # Notify the asker their question was answered, deep-linking to it
+        # (best-effort — a push failure must never undo the answer).
+        await PushService(self.db).notify_users(
+            [question.asker_user_id],
+            PushMessage(
+                message_type=PushMessageType.QNA_ANSWERED,
+                title="Your question was answered",
+                body="The masjid has answered your question.",
+                data={
+                    "masjid_id": str(question.masjid_id),
+                    "question_id": str(question_id),
+                },
+            ),
+        )
         logger.info("Masjid question answered", extra={"question_id": str(question_id)})
         return QuestionModerationResponse.model_validate(question)
 

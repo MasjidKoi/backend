@@ -5,7 +5,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import CurrentUser
-from app.models.enums import MasjidSubmissionStatus
+from app.models.enums import MasjidSubmissionStatus, PushMessageType
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.masjid_repository import MasjidRepository
 from app.repositories.masjid_submission_repository import MasjidSubmissionRepository
@@ -16,6 +16,7 @@ from app.schemas.masjid_submission import (
     MasjidSubmissionListResponse,
     MasjidSubmissionResponse,
 )
+from app.services.push_service import PushMessage, PushService
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ _MAX_PENDING_PER_USER = 3
 
 class MasjidSubmissionService:
     def __init__(self, db: AsyncSession) -> None:
+        self.db = db
         self.repo = MasjidSubmissionRepository(db)
         self.masjid_repo = MasjidRepository(db)  # same session — atomic on approve
         self.audit = AuditLogRepository(db)
@@ -150,8 +152,20 @@ class MasjidSubmissionService:
         await self.repo.commit()
         # onupdate=func.now() expired updated_at server-side; reload before serialising.
         await self.repo.refresh(submission)
-        # TODO(#6): notify submitter with a `submission-approved` push once the
-        # push subsystem lands.
+        # Notify the submitter their masjid is live (best-effort — a push failure
+        # must never undo the approval; delivers for real once a transport lands).
+        await PushService(self.db).notify_users(
+            [submission.user_id],
+            PushMessage(
+                message_type=PushMessageType.SUBMISSION_APPROVED,
+                title="Your masjid is now live",
+                body=f"{name} has been approved and added to MasjidKoi.",
+                data={
+                    "submission_id": str(submission_id),
+                    "masjid_id": str(masjid.masjid_id),
+                },
+            ),
+        )
         logger.info(
             "Masjid submission approved",
             extra={

@@ -12,6 +12,7 @@ from app.models.enums import MasjidStatus
 from app.models.user_badge import UserBadge
 from app.models.user_journal_entry import UserJournalEntry
 from app.repositories.donation_repository import DonationRepository
+from app.repositories.masjid_photo_repository import MasjidPhotoRepository
 from app.repositories.masjid_repository import MasjidRepository
 from app.repositories.user_badge_repository import UserBadgeRepository
 from app.repositories.user_checkin_repository import UserCheckinRepository
@@ -58,6 +59,7 @@ class GamificationService:
         self.journal_repo = UserJournalRepository(db)
         self.masjid_repo = MasjidRepository(db)
         self.donation_repo = DonationRepository(db)
+        self.photo_repo = MasjidPhotoRepository(db)
 
     # ── Check-ins ───────────────────────────────────────────────────────────
 
@@ -273,10 +275,13 @@ class GamificationService:
             # Activated by PRD 05 — consecutive Dhaka-calendar months with at
             # least one completed donation (consistency, never amount).
             consecutive_giving_months=_consecutive_giving_months(giving_months),
-            # Verified-contribution points. v0 counts check-ins ONLY; accepted
-            # info reports and approved community photos are part of the Community
-            # Pillar criterion (see BadgeEngine) but are not yet summed here.
-            contribution_points=await self.checkin_repo.count_by_user(user_id),
+            # Verified-contribution points (Community Pillar, PRD 08): check-ins +
+            # approved community photos, 1 point each. Accepted info reports are the
+            # remaining input — deferred until masjid_reports carries a user_id.
+            contribution_points=(
+                await self.checkin_repo.count_by_user(user_id)
+                + await self.photo_repo.count_approved_community_by_user(user_id)
+            ),
         )
 
     async def reevaluate_badges(

@@ -148,6 +148,9 @@ class MasjidReviewService:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Review not found"
             )
-        self._check_scope(user, masjid_id)
+        # The review's author may always delete their own review (PRD 07 story 45);
+        # otherwise fall back to the masjid-admin / platform-admin moderation path.
+        if review.user_id != uuid.UUID(str(user.user_id)):
+            self._check_scope(user, masjid_id)
         await self.repo.delete(review)
         await self.repo.commit()

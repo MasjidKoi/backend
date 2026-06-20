@@ -457,12 +457,12 @@ async def list_reviews(
 @router.delete(
     "/{masjid_id}/reviews/{review_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Remove a review (masjid_admin or platform_admin)",
+    summary="Remove a review (author, masjid_admin, or platform_admin)",
 )
 async def delete_review(
     masjid_id: uuid.UUID,
     review_id: uuid.UUID,
-    user: CurrentUser = Depends(require_masjid_admin),
+    user: CurrentUser = Depends(get_current_user),
     service: MasjidReviewService = Depends(get_masjid_review_service),
 ) -> None:
     await service.delete_review(masjid_id, review_id, user)

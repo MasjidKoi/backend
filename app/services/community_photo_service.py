@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.security import CurrentUser
-from app.models.enums import PhotoModerationStatus, PhotoSource
+from app.models.enums import PhotoModerationStatus, PhotoSource, PushMessageType
 from app.models.masjid import MasjidPhoto
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.co_admin_invite_repository import CoAdminInviteRepository
@@ -20,7 +20,9 @@ from app.schemas.community_photo import (
     CommunityPhotoPublicListResponse,
     CommunityPhotoSubmissionResponse,
 )
+from app.services.gamification_service import GamificationService
 from app.services.moderation_routing import can_moderate, ngo_pending_cutoff
+from app.services.push_service import PushMessage, PushService
 from app.services.storage import StorageService
 
 logger = logging.getLogger(__name__)
@@ -39,6 +41,7 @@ _WINDOW = timedelta(hours=24)
 
 class CommunityPhotoService:
     def __init__(self, db: AsyncSession) -> None:
+        self.db = db
         self.repo = MasjidPhotoRepository(db)
         self.masjid_repo = MasjidRepository(db)
         self.co_admin = CoAdminInviteRepository(db)
@@ -266,7 +269,28 @@ class CommunityPhotoService:
         )
         await self.repo.commit()
         await self.repo.refresh(photo)
-        # TODO(#6): on approve, notify the submitter with a `photo-approved` push
-        # once the push subsystem lands. Reject sends nothing.
+        # On approval, notify the submitter (best-effort). Reject sends nothing.
+        # uploaded_by is nullable (SET NULL on account deletion) — guard it.
+        if new_status == PhotoModerationStatus.APPROVED and photo.uploaded_by:
+            await PushService(self.db).notify_users(
+                [photo.uploaded_by],
+                PushMessage(
+                    message_type=PushMessageType.PHOTO_APPROVED,
+                    title="Your photo was approved",
+                    body="A photo you submitted is now on the masjid's profile.",
+                    data={
+                        "masjid_id": str(photo.masjid_id),
+                        "photo_id": str(photo.photo_id),
+                    },
+                ),
+            )
+            # An approved photo counts toward Community Pillar (PRD 08); re-evaluate
+            # the uploader's badges. Best-effort, so a failure never breaks approval.
+            try:
+                await GamificationService(self.db).reevaluate_badges(photo.uploaded_by)
+            except Exception:
+                logger.exception(
+                    "Badge re-eval failed after photo approval %s", photo_id
+                )
         logger.info("Community photo %s", new_status, extra={"photo_id": str(photo_id)})
         return CommunityPhotoModerationResponse.model_validate(photo)
