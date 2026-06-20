@@ -2,7 +2,7 @@ import uuid
 from typing import Any
 
 from geoalchemy2.functions import ST_Distance, ST_DWithin
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.orm import selectinload
 
 from app.models.enums import MasjidStatus
@@ -123,22 +123,60 @@ class MasjidRepository(BaseRepository[Masjid]):
             "verified_masjids": row.verified,
         }
 
-    async def search(self, q: str, limit: int = 20) -> list[Masjid]:
-        """Case-insensitive name/region autocomplete — active masjids only."""
+    async def search(
+        self,
+        q: str,
+        limit: int = 20,
+        *,
+        lat: float | None = None,
+        lng: float | None = None,
+    ) -> list[tuple[Masjid, float | None]]:
+        """
+        Case-insensitive name/region autocomplete — active masjids only.
+
+        Always ranks by match quality first (exact name > name prefix > exact
+        region > region prefix > substring). When lat/lng are supplied, ties
+        within the same match-quality band are broken by ascending distance and
+        each row carries its distance in metres; otherwise distance is None and
+        ties break by name. Reuses the same PostGIS machinery as get_nearby.
+        """
         pattern = f"%{q}%"
+        # ilike(q) with no wildcards is a case-insensitive exact match.
+        match_rank = case(
+            (Masjid.name.ilike(q), 0),
+            (Masjid.name.ilike(f"{q}%"), 1),
+            (Masjid.admin_region.ilike(q), 2),
+            (Masjid.admin_region.ilike(f"{q}%"), 3),
+            else_=4,
+        )
+        filters = (
+            Masjid.status == MasjidStatus.ACTIVE,
+            or_(
+                Masjid.name.ilike(pattern),
+                Masjid.admin_region.ilike(pattern),
+            ),
+        )
+
+        if lat is not None and lng is not None:
+            point = func.ST_GeographyFromText(f"SRID=4326;POINT({lng} {lat})")
+            distance_expr = ST_Distance(Masjid.location, point).label("distance_m")
+            stmt = (
+                select(Masjid, distance_expr)
+                .where(*filters)
+                .order_by(match_rank, distance_expr, Masjid.name)
+                .limit(limit)
+            )
+            rows = (await self.db.execute(stmt)).all()
+            return [(row[0], float(row[1])) for row in rows]
+
         stmt = (
             select(Masjid)
-            .where(Masjid.status == MasjidStatus.ACTIVE)
-            .where(
-                or_(
-                    Masjid.name.ilike(pattern),
-                    Masjid.admin_region.ilike(pattern),
-                )
-            )
-            .order_by(Masjid.name)
+            .where(*filters)
+            .order_by(match_rank, Masjid.name)
             .limit(limit)
         )
-        return list((await self.db.execute(stmt)).scalars().all())
+        masjids = (await self.db.execute(stmt)).scalars().all()
+        return [(m, None) for m in masjids]
 
     async def list_for_admin(
         self,

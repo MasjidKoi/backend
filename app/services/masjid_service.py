@@ -29,6 +29,7 @@ from app.schemas.masjid import (
     MasjidMergeRequest,
     MasjidNearbyResult,
     MasjidResponse,
+    MasjidSearchResult,
     MasjidSummary,
     MasjidUpdate,
     PhotoResponse,
@@ -423,14 +424,29 @@ class MasjidService:
     async def get_stats(self) -> dict:
         return await self.repo.get_stats()
 
-    async def search(self, q: str) -> list[MasjidSummary]:
+    async def search(
+        self,
+        q: str,
+        *,
+        lat: float | None = None,
+        lng: float | None = None,
+    ) -> list[MasjidSearchResult]:
         if len(q.strip()) < 2:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Search query must be at least 2 characters",
             )
-        masjids = await self.repo.search(q.strip())
-        return [MasjidSummary.model_validate(m, from_attributes=True) for m in masjids]
+        if (lat is None) != (lng is None):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="lat and lng must be provided together",
+            )
+        pairs = await self.repo.search(q.strip(), lat=lat, lng=lng)
+        results = []
+        for masjid, dist in pairs:
+            summary = MasjidSummary.model_validate(masjid, from_attributes=True)
+            results.append(MasjidSearchResult(**summary.model_dump(), distance_m=dist))
+        return results
 
     # ── Admin writes ───────────────────────────────────────────────────────────
 
