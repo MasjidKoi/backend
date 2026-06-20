@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
+    ForeignKey,
     Index,
     String,
     Text,
@@ -23,7 +24,8 @@ class SupportTicket(Base):
             name="ck_support_tickets_status",
         ),
         CheckConstraint(
-            "category IN ('Bug','IncorrectData','FeatureRequest','Other')",
+            "category IN "
+            "('Bug','IncorrectData','FeatureRequest','DonationIssue','Other')",
             name="ck_support_tickets_category",
         ),
         Index("idx_support_tickets_status", "status"),
@@ -38,6 +40,14 @@ class SupportTicket(Base):
     category: Mapped[str] = mapped_column(String(30), nullable=False)
     subject: Mapped[str | None] = mapped_column(String(200), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Optional reference to the donation a ticket was opened from (PRD 05 US 51)
+    # so the admin can open the exact donation as context. SET NULL keeps a
+    # ticket alive if the donation is ever removed. donations is a local table.
+    donation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("donations.donation_id", ondelete="SET NULL"),
+        nullable=True,
+    )
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="Open"
     )

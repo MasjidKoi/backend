@@ -30,6 +30,7 @@ class SupportTicketService:
             category=data.category,
             subject=data.subject,
             description=data.description,
+            donation_id=data.donation_id,
             status="Open",
         )
         await self.repo.commit()
@@ -108,6 +109,7 @@ def _to_admin_response(ticket) -> SupportTicketAdminResponse:
         category=ticket.category,
         subject=ticket.subject,
         description=ticket.description,
+        donation_id=ticket.donation_id,
         status=ticket.status,
         assigned_to=ticket.assigned_to,
         assigned_to_email=ticket.assigned_to_email,
