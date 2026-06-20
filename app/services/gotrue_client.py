@@ -94,6 +94,74 @@ class GoTrueClient:
             )
         _raise_for_gotrue(resp, "password reset request")
 
+    # ── Consumer email-OTP (passwordless) ─────────────────────────────────────
+
+    async def ensure_consumer_user(self, email: str) -> None:
+        """
+        Idempotently create a confirmed consumer (app_user) account so that the
+        native email-OTP flow can issue codes while public sign-up stays disabled
+        (GOTRUE_DISABLE_SIGNUP=true).
+
+        Setting app_metadata.role=app_user is REQUIRED: decode_token() rejects any
+        JWT without a role claim, so an OTP session minted for a user that lacks
+        this claim would 403 on every authenticated endpoint.
+
+        Create-or-ignore: a 422 email_exists means the account already exists
+        (consumer or admin) — leave its existing role/metadata untouched.
+        """
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(
+                f"{self._base}/admin/users",
+                json={
+                    "email": email,
+                    "email_confirm": True,
+                    "app_metadata": {"role": str(AdminRole.APP_USER)},
+                },
+                headers=_admin_headers(),
+            )
+        if resp.status_code == 422 and resp.json().get("error_code") == "email_exists":
+            return
+        _raise_for_gotrue(resp, "ensure consumer user")
+
+    async def send_email_otp(self, email: str) -> None:
+        """
+        POST /otp — email a 6-digit login code.
+
+        create_user=false: the account is pre-provisioned by ensure_consumer_user,
+        so this never trips GOTRUE_DISABLE_SIGNUP.
+        """
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(
+                f"{self._base}/otp",
+                json={"email": email, "create_user": False},
+            )
+        _raise_for_gotrue(resp, "send email OTP")
+
+    async def verify_email_otp(self, email: str, code: str) -> dict | None:
+        """
+        POST /verify — exchange an emailed code for a session.
+
+        Returns the GoTrue session dict on success, or None when the code is
+        rejected (wrong or expired — GoTrue deliberately does not distinguish the
+        two, so the caller resolves that from its own issued-code state).
+
+        Transport/infra failures (5xx, timeouts) propagate as HTTPException so the
+        client can retry rather than burning a verify attempt.
+        """
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(
+                f"{self._base}/verify",
+                json={"type": "email", "email": email, "token": code},
+            )
+        if resp.is_success:
+            return resp.json()
+        # 400/401/403/422 = the code was wrong, expired, or already consumed.
+        if resp.status_code in (400, 401, 403, 422):
+            logger.info("OTP verify rejected for %s: %s", email, resp.text)
+            return None
+        _raise_for_gotrue(resp, "verify email OTP")
+        return None  # unreachable — _raise_for_gotrue raises on non-success
+
     # ── Admin endpoints (service_role) ────────────────────────────────────────
 
     async def create_admin_user(

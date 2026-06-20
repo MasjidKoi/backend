@@ -111,6 +111,15 @@ services:
       GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_FROM:-noreply@masjidkoi.com}
       GOTRUE_SMTP_SENDER_NAME: MasjidKoi
 
+      # ── Email templates ───────────────────────────────────────────────────
+      # The consumer email-OTP flow (POST /otp on a confirmed user) sends a
+      # "magic link" type email; this template surfaces the 6-digit {{ .Token }}
+      # so the mobile OTP screen can use the code instead of a link.
+      # GoTrue loads templates by URL only — the api container serves it over
+      # the internal Compose network.
+      GOTRUE_MAILER_SUBJECTS_MAGIC_LINK: "Your MasjidKoi login code"
+      GOTRUE_MAILER_TEMPLATES_MAGIC_LINK: http://api:8000/email-templates/magic_link.html
+
       # ── Email redirect paths (GoTrue's own verification endpoints) ──────────
       # URLPATHS are paths on the GoTrue SERVER — must remain /verify.
       # The frontend redirect target is controlled by redirect_to in the invite API call.

@@ -27,6 +27,7 @@ from app.routers import (
     co_admins,
     community_photos,
     donations,
+    email_templates,
     events,
     feed,
     gamification,
@@ -145,6 +146,7 @@ app.include_router(admin.router)
 app.include_router(donations.user_router)
 app.include_router(donations.admin_router)
 app.include_router(payments.router)
+app.include_router(email_templates.router)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────

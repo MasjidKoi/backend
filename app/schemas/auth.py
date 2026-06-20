@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models.enums import AdminRole
 
@@ -10,6 +10,30 @@ from app.models.enums import AdminRole
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+# ── Consumer email-OTP (passwordless) ─────────────────────────────────────────
+
+
+class OtpRequest(BaseModel):
+    """Request a one-time login code by email. Implicit signup — no register step."""
+
+    email: EmailStr
+
+
+class OtpVerifyRequest(BaseModel):
+    """Verify the 6-digit code emailed to the user."""
+
+    email: EmailStr
+    code: str = Field(..., min_length=6, max_length=6)
+
+    @field_validator("code")
+    @classmethod
+    def code_must_be_six_digits(cls, v: str) -> str:
+        v = v.strip()
+        if not v.isdigit() or len(v) != 6:
+            raise ValueError("Code must be exactly 6 digits")
+        return v
 
 
 class RefreshRequest(BaseModel):
@@ -82,6 +106,30 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int
     refresh_token: str
+
+
+class OtpRequestResponse(BaseModel):
+    """
+    Always returned with 202 from POST /auth/otp/request — never reveals whether
+    the email maps to an existing account (no enumeration).
+
+    `retry_after_seconds` lets the client (re)sync its 60s resend countdown even
+    after an app restart: it is the seconds remaining before another code may be
+    requested.
+    """
+
+    detail: str = "If the email is valid, a code has been sent."
+    retry_after_seconds: int
+
+
+class OtpTokenResponse(BaseModel):
+    """Successful OTP verification — a full session plus a first-login flag."""
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    refresh_token: str
+    is_new_user: bool
 
 
 class AdminInviteResponse(BaseModel):
