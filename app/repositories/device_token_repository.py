@@ -68,6 +68,16 @@ class DeviceTokenRepository(BaseRepository[DeviceToken]):
         )
         return list(result.scalars().all())
 
+    async def list_for_user(self, user_id: uuid.UUID) -> list[DeviceToken]:
+        """Every device token registered to this user, newest first — for the
+        full data export (PRD 09)."""
+        result = await self.db.execute(
+            select(DeviceToken)
+            .where(DeviceToken.user_id == user_id)
+            .order_by(DeviceToken.created_at.desc())
+        )
+        return list(result.scalars().all())
+
     async def list_all_tokens(self) -> list[DeviceToken]:
         """Every registered device token — backs the platform-wide broadcast
         (PLATFORM_PUSH / HIJRI_OFFSET). v1 loads all rows into memory; token

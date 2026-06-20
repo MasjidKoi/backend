@@ -1,19 +1,22 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 
 from app.core.rate_limit import make_rate_limiter
 from app.core.security import CurrentUser
 from app.dependencies.auth import get_current_user, require_platform_admin
 from app.dependencies.masjid_submission import get_masjid_submission_service
+from app.dependencies.storage import get_storage_service
 from app.schemas.masjid_submission import (
     MasjidSubmissionAdminResponse,
     MasjidSubmissionApprove,
     MasjidSubmissionCreate,
     MasjidSubmissionListResponse,
     MasjidSubmissionResponse,
+    SubmissionPhotoUploadResponse,
 )
 from app.services.masjid_submission_service import MasjidSubmissionService
+from app.services.storage import StorageService
 
 # No prefix — full paths declared per-route so they sit in distinct namespaces
 # (/masjids/submissions, /me/submissions, /admin/submissions). This router MUST be
@@ -23,6 +26,9 @@ router = APIRouter(tags=["submissions"])
 
 _submission_limiter = make_rate_limiter(
     limit=10, window_s=3600, key_prefix="masjid_submission"
+)
+_photo_limiter = make_rate_limiter(
+    limit=30, window_s=3600, key_prefix="masjid_submission_photo"
 )
 
 
@@ -42,6 +48,22 @@ async def create_submission(
     service: MasjidSubmissionService = Depends(get_masjid_submission_service),
 ) -> MasjidSubmissionResponse:
     return await service.create(body, user)
+
+
+@router.post(
+    "/masjids/submissions/photo",
+    response_model=SubmissionPhotoUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload a submission photo, returns a photo_key (authenticated)",
+)
+async def upload_submission_photo(
+    file: UploadFile = File(..., description="Image (JPEG, PNG, WebP), max 5 MB"),
+    user: CurrentUser = Depends(get_current_user),
+    _rl: None = Depends(_photo_limiter),
+    service: MasjidSubmissionService = Depends(get_masjid_submission_service),
+    storage: StorageService = Depends(get_storage_service),
+) -> SubmissionPhotoUploadResponse:
+    return await service.upload_photo(file, user, storage)
 
 
 @router.get(

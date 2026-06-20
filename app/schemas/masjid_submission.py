@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
+
+from app.core.config import settings
 
 # ── Create ───────────────────────────────────────────────────────────────────
 
@@ -14,6 +16,17 @@ class MasjidSubmissionCreate(BaseModel):
     longitude: float = Field(..., ge=-180.0, le=180.0)
     address: str | None = Field(default=None, max_length=500)
     photo_key: str | None = Field(default=None, max_length=500)
+
+
+# ── Photo upload ───────────────────────────────────────────────────────────────
+
+
+class SubmissionPhotoUploadResponse(BaseModel):
+    """Returned by the pre-submission photo upload — the client puts `photo_key`
+    on the subsequent submission create body; `url` is for an immediate preview."""
+
+    photo_key: str
+    url: str
 
 
 # ── Approve ──────────────────────────────────────────────────────────────────
@@ -49,6 +62,15 @@ class MasjidSubmissionResponse(BaseModel):
     approved_masjid_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
+
+    @computed_field
+    @property
+    def photo_url(self) -> str | None:
+        """Viewable URL for the attached photo (so the submitter and the NGO
+        review queue can see it), derived from the stored key."""
+        if not self.photo_key:
+            return None
+        return f"{settings.s3_endpoint}/{settings.S3_BUCKET_PHOTOS}/{self.photo_key}"
 
 
 class MasjidSubmissionAdminResponse(MasjidSubmissionResponse):

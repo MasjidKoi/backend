@@ -36,6 +36,16 @@ class MasjidReviewRepository(BaseRepository[MasjidReview]):
         )
         return list(rows_result.scalars().all()), total
 
+    async def list_all_for_user(self, user_id: uuid.UUID) -> list[MasjidReview]:
+        """Every review this user has written, newest first — for the full data
+        export (PRD 09)."""
+        result = await self.db.execute(
+            select(MasjidReview)
+            .where(MasjidReview.user_id == user_id)
+            .order_by(MasjidReview.created_at.desc())
+        )
+        return list(result.scalars().all())
+
     async def get_average_rating(self, masjid_id: uuid.UUID) -> float | None:
         result = await self.db.execute(
             select(func.avg(MasjidReview.rating)).where(

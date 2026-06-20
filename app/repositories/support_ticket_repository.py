@@ -1,3 +1,5 @@
+import uuid
+
 from sqlalchemy import func, select
 
 from app.models.support_ticket import SupportTicket
@@ -12,6 +14,16 @@ class SupportTicketRepository(BaseRepository[SupportTicket]):
         self.db.add(ticket)
         await self.db.flush()
         return ticket
+
+    async def list_for_user(self, user_id: uuid.UUID) -> list[SupportTicket]:
+        """Every ticket this user has filed, newest first — for the full data
+        export (PRD 09)."""
+        result = await self.db.execute(
+            select(SupportTicket)
+            .where(SupportTicket.user_id == user_id)
+            .order_by(SupportTicket.created_at.desc())
+        )
+        return list(result.scalars().all())
 
     async def list(
         self,

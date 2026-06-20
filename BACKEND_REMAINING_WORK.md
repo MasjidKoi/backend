@@ -4,17 +4,18 @@ Gap analysis of the 8 mobile PRDs (`../mobile/docs/prds/`) against the actual ba
 (`app/`). **Re-audited PRD-by-PRD on 2026-06-21** with one independent agent per PRD, each
 extracting every backend requirement and verifying it against source (not against this doc).
 
-> **Update 2026-06-21 — corrected after a full adversarial re-audit.** The prior pass claimed
-> the backend was "feature-complete for every PRD except PRD 02." That was **too optimistic**.
-> The re-audit confirmed PRDs **03 and 07 are airtight (with tests)** and **04 and 08 complete
-> bar trivia**, but found **genuine code gaps in PRDs 02, 05, and 09** that the previous summary
-> missed — two of them compliance-critical. One small gap (PRD 04 Q&A attribution) was **fixed
-> in this pass**. PRD 09 is **not** zero-work and PRD 05 is **not** config-only.
+> **Update 2026-06-21 — corrected after a full adversarial re-audit, then two fix passes.** The
+> original pass claimed the backend was "feature-complete except PRD 02" — too optimistic. The
+> re-audit confirmed PRDs **03/07/08 airtight** and **04 complete bar trivia**, but found real
+> code gaps in **02, 05, 09**. Two fix passes have since closed the small + medium gaps:
+> **PR #17** — Q&A attribution, support-from-donation reference, broadcast audit-log, and
+> nearby/search cache headers; **second pass** — the full **data export** (PRD 09 #2), the
+> **submission photo upload** (PRD 02 #5), and the committed **OTP test suite** (PRD 01).
 
-**Headline:** the backend covers the bulk of all 8 PRDs, but is **not** feature-complete.
-Besides the known PRD 02 share/deep-link infra, there are real gaps in **account deletion +
-data export (PRD 09)**, **donation privacy + push gating (PRD 05)**, and **submission photo
-upload (PRD 02)**.
+**Headline:** the backend now covers the bulk of all 8 PRDs. What remains is **three larger,
+compliance-shaped gaps** — the 30-day **account-deletion purge** (PRD 09), the **"donate
+anonymously by default" setting** (PRD 05), and **per-message-type notification gating**
+(PRD 05/09) — plus the domain-gated PRD 02 share/deep-link infra.
 
 ---
 
@@ -22,14 +23,14 @@ upload (PRD 02)**.
 
 | PRD | Area | Status | What's left |
 |---|---|---|---|
-| 01 | Onboarding & Auth (email OTP) | ✅ **Functionally done** | The PRD-**committed** OTP pytest suite was never written (impl is complete) |
-| 02 | Discovery & Map | 🟡 **2 gaps** | Share/OG page + `.well-known` (domain-gated) **and** submission photo upload has no backend path |
+| 01 | Onboarding & Auth (email OTP) | ✅ **Done** | OTP pytest suite landed (2026-06-21) |
+| 02 | Discovery & Map | 🟡 **share/deep-link only** | Share/OG page + `.well-known` (domain-gated). Submission photo upload landed (2026-06-21) |
 | 03 | Prayer Times & **Push** | ✅ **Done (verified, with tests)** | Nothing |
-| 04 | Profile / Photos / Q&A | ✅ **Done** | Q&A public attribution — **FIXED 2026-06-21** |
+| 04 | Profile / Photos / Q&A | ✅ **Done** | Q&A public attribution fixed (PR #17) |
 | 05 | Donations & Dashboard | 🟡 **2 code gaps + config** | "Donate anonymously by default" setting; per-type push gating (both code). Plus NGO config |
 | 07 | Community (feed/reviews) | ✅ **Done (verified)** | Nothing |
 | 08 | Gamification | ✅ **Done (verified)** | Nothing in backend scope |
-| 09 | Settings & Accessibility | ❌ **Not zero-work** | 30-day deletion **purge** and **data export** both under-deliver vs the PRD's own copy |
+| 09 | Settings & Accessibility | 🟡 **deletion purge only** | 30-day deletion **purge** still missing. Data export widened (2026-06-21) |
 
 ---
 
@@ -46,11 +47,13 @@ audit, which noted the purge job is absent.)*
 or anonymizes across all user-linked tables (gamification tables key on bare `user_id`, so no FK
 blocking).
 
-### #2 — PRD 09: data export is near-empty
-`GET /users/me/export` returns only profile + followed masjids (`UserDataExport`,
-`schemas/user.py:30`). For the "PDPO data portability" / "download my data before deleting"
-flow it omits donations, reviews, Q&A, submissions, check-ins, journal entries, goals, badges.
-**Needs:** widen the export aggregation to include every user-linked model.
+### #2 — PRD 09: data export widened — ✅ **FIXED 2026-06-21**
+`GET /users/me/export` now carries every user-linked collection — donations, reviews, Q&A,
+submissions, check-ins, journal entries, goals (+ completion dates), badges, support tickets,
+device tokens, reports, recurring schedules, event RSVPs — on top of profile + follows. New
+`app/schemas/user_export.py`; `UserService.export_me` aggregates per-user repo reads
+(sequential, single session); added `list_all_for_user`/`list_for_user`/`list_rsvps_for_user`
+to the repos that lacked one. No migration (read-only). Covered by `tests/test_prd09_export.py`.
 
 ### #3 — PRD 05: "donate anonymously by default" setting is missing entirely
 PRD 05 explicitly says it *fills* this reserved PRD 09 slot, but there is no field on
@@ -73,14 +76,13 @@ both PRDs assert "nothing notifies me without a switch behind it."
 
 ## 🟠 Tier 2 — smaller functional gaps
 
-### #5 — PRD 02: submission photo upload has no backend path
-The submission model/schema accept a `photo_key` (`models/masjid_submission.py:56`,
-`schemas/masjid_submission.py:16`) but there is **no presign endpoint** (`StorageService` only
-does server-side `upload(bytes)`/`delete`) and **no multipart route** on the submissions router —
-unlike community/masjid photos, which *do* take `UploadFile`. So "optionally attach a photo"
-(PRD 02 lines 92, 127) is not deliverable, and nothing resolves a `photo_key` back to a URL for
-the admin review queue.
-**Needs:** either a presigned-URL endpoint or a multipart submission-photo upload route.
+### #5 — PRD 02: submission photo upload — ✅ **FIXED 2026-06-21**
+Added `POST /masjids/submissions/photo` (multipart, authenticated, rate-limited) mirroring the
+community-photo validation (415/413/422); it stores the image under `submissions/{user}/…` and
+returns `{photo_key, url}`, which the client puts on the existing create-submission body. The
+submission responses now expose a computed `photo_url` so the submitter **and** the NGO review
+queue can view the photo. No migration (`photo_key` already existed). Covered by
+`tests/test_submission_photo.py`.
 
 ### #6 — PRD 04: public Q&A answer attribution — ✅ **FIXED 2026-06-21**
 `QuestionPublic` omitted `answer_author_role`, so the client couldn't render "answered by the
@@ -88,27 +90,24 @@ masjid" vs "the NGO" (US 38). The column was already stored and populated at ans
 pass added `answer_author_role: str | None` to `app/schemas/masjid_question.py` (no migration —
 the column already exists on the model). **Done.**
 
-### #7 — PRD 05: support-from-donation-detail (US 51) — PARTIAL
-`SupportTicket` carries no donation/entity reference and `TicketCategory` is Bug / IncorrectData
-/ FeatureRequest / Other only. A donor can open a generic ticket, but the "one tap with full
-[donation] context" degrades to free-text. **Needs:** an optional donation-reference field on the
-support ticket.
+### #7 — PRD 05: support-from-donation-detail (US 51) — ✅ **FIXED (PR #17)**
+`SupportTicket` gained an optional `donation_id` (FK → `donations`, `ON DELETE SET NULL`) and a
+`DonationIssue` category, so a ticket opened from a donation carries that context for the admin
+(migration `cf15d14cf9cc`).
 
 ---
 
 ## 🟡 Tier 3 — process / minor
 
-- **PRD 01:** the PRD's Testing Decisions section **commits** a backend OTP pytest suite
-  (cooldown / caps / 5-attempt lockout / expiry / token+is_new_user / bootstrap-once). The
-  implementation is complete and correct; the committed test file does **not** exist.
-- **PRD 02:** no `Cache-Control`/`ETag` on `nearby`/`search` despite the PRD's "cacheable"
-  language (arguably a CDN/edge concern).
-- **PRD 03:** `POST /admin/broadcast-push` is a platform-wide action that writes no audit-log
-  entry (the code comment itself flags this as a "reasonable follow-up"). Also worth a one-line
-  confirm with mobile that "follow == eligible for TIME_CHANGE ping."
+- **PRD 01:** ✅ **FIXED 2026-06-21** — the committed OTP pytest suite landed
+  (`tests/test_otp_auth.py`, 12 cases: cooldown report, per-email/per-IP caps, 5-attempt lockout,
+  expiry vs wrong-code classification, token+is_new_user, bootstrap-once, no-Redis degradation).
+- **PRD 02:** ✅ **FIXED (PR #17)** — `Cache-Control: public, max-age=60` on `nearby`/`search`.
+- **PRD 03:** ✅ **FIXED (PR #17)** — `POST /admin/broadcast-push` now writes an audit-log entry.
+  (Still worth a one-line confirm with mobile that "follow == eligible for TIME_CHANGE ping.")
 - **PRD 09:** `410 Gone` for a deleted account is enforced only on `/users/me*`, not globally —
   a soft-deleted user could still write via other routers (tangential; mobile drops to guest on
-  the 202).
+  the 202). *Still open.*
 
 ---
 

@@ -9,6 +9,18 @@ from app.repositories.base import BaseRepository
 class MasjidReportRepository(BaseRepository[MasjidReport]):
     model = MasjidReport
 
+    # Defined before `list()` below: that method name shadows the builtin `list`
+    # for annotations of later methods, so a `-> list[...]` return must precede it.
+    async def list_for_user(self, user_id: uuid.UUID) -> list[MasjidReport]:
+        """Every report this user submitted, newest first — for the full data
+        export (PRD 09)."""
+        result = await self.db.execute(
+            select(MasjidReport)
+            .where(MasjidReport.user_id == user_id)
+            .order_by(MasjidReport.created_at.desc())
+        )
+        return list(result.scalars().all())
+
     async def list(
         self,
         *,
