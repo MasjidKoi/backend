@@ -9,6 +9,7 @@ from app.core.rate_limit import make_rate_limiter
 from app.core.security import CurrentUser
 from app.dependencies.auth import (
     get_current_user,
+    get_current_user_optional,
     require_masjid_admin,
     require_platform_admin,
 )
@@ -349,9 +350,14 @@ async def report_masjid(
     masjid_id: uuid.UUID,
     body: MasjidReportCreate,
     _rl: None = Depends(_report_limiter),
+    user: CurrentUser | None = Depends(get_current_user_optional),
     service: MasjidReportService = Depends(get_masjid_report_service),
 ) -> MasjidReportResponse:
-    return await service.create_report(masjid_id, body)
+    # Public endpoint; attribute the report to the submitter when signed in so an
+    # accepted report can count toward Community Pillar (PRD 08).
+    return await service.create_report(
+        masjid_id, body, user_id=user.user_id if user else None
+    )
 
 
 @router.post(
@@ -382,9 +388,7 @@ async def set_follow_notification_mode(
     user: CurrentUser = Depends(get_current_user),
     service: UserMasjidFollowService = Depends(get_follow_service),
 ) -> None:
-    await service.set_notification_mode(
-        masjid_id, user, body.notification_mode.value
-    )
+    await service.set_notification_mode(masjid_id, user, body.notification_mode.value)
 
 
 @router.delete(

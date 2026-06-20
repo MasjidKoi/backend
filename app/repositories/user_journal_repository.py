@@ -36,6 +36,28 @@ class UserJournalRepository(BaseRepository[UserJournalEntry]):
         )
         return list(result.scalars().all())
 
+    async def sum_quran_amount(
+        self,
+        user_id: uuid.UUID,
+        unit: str,
+        date_from: date,
+        date_to: date,
+    ) -> int:
+        """Total logged Qur'an in one unit over a date window — the journal-fed
+        source for a Qur'an-quantity goal's progress (PRD 08 US #38).
+
+        Only entries whose unit *matches* the goal's are summed; cross-unit
+        conversion is a client concern handled at unit-switch, never here."""
+        result = await self.db.execute(
+            select(func.coalesce(func.sum(UserJournalEntry.quran_amount), 0)).where(
+                UserJournalEntry.user_id == user_id,
+                UserJournalEntry.quran_unit == unit,
+                UserJournalEntry.entry_date >= date_from,
+                UserJournalEntry.entry_date <= date_to,
+            )
+        )
+        return int(result.scalar_one())
+
     async def list_by_user(
         self,
         user_id: uuid.UUID,

@@ -28,6 +28,7 @@ from app.models import recurring_schedule as _recurring_schedule  # noqa: F401, 
 from app.models import support_ticket as _support_ticket  # noqa: F401, E402
 from app.models import user_badge as _user_badge  # noqa: F401, E402
 from app.models import user_checkin as _user_checkin  # noqa: F401, E402
+from app.models import user_goal as _user_goal  # noqa: F401, E402
 from app.models import user_journal_entry as _user_journal_entry  # noqa: F401, E402
 from app.models import user_masjid_follow as _user_masjid_follow  # noqa: F401, E402
 from app.models import user_profile as _user_profile  # noqa: F401, E402

@@ -31,6 +31,7 @@ from app.core.security import CurrentUser, decode_token
 from app.models.enums import AdminRole, AuthAssuranceLevel
 
 _bearer = HTTPBearer(auto_error=True)
+_bearer_optional = HTTPBearer(auto_error=False)
 
 
 # ── Base dependency ────────────────────────────────────────────────────────────
@@ -43,6 +44,21 @@ def get_current_user(
     Extract and validate the Bearer JWT from the Authorization header.
     Returns a typed CurrentUser or raises 401/403.
     """
+    return decode_token(credentials.credentials)
+
+
+def get_current_user_optional(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_optional),
+) -> CurrentUser | None:
+    """
+    Like get_current_user but for endpoints that are public yet attribute the
+    caller when signed in. No Authorization header -> None (the request proceeds
+    as a guest). A header that IS present is still fully validated by
+    decode_token (raising 401/403 on an invalid or role-less token), so a
+    malformed token is never silently treated as anonymous.
+    """
+    if credentials is None:
+        return None
     return decode_token(credentials.credentials)
 
 

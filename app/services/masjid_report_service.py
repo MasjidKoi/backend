@@ -1,3 +1,4 @@
+import logging
 import uuid
 from typing import Literal
 
@@ -16,6 +17,8 @@ from app.schemas.masjid_report import (
 )
 from app.services.email_service import send_email
 
+logger = logging.getLogger(__name__)
+
 
 class MasjidReportService:
     def __init__(self, db: AsyncSession) -> None:
@@ -27,6 +30,7 @@ class MasjidReportService:
         self,
         masjid_id: uuid.UUID,
         data: MasjidReportCreate,
+        user_id: uuid.UUID | None = None,
     ) -> MasjidReportResponse:
         masjid = await self.masjid_repo.get_by_id(masjid_id)
         if not masjid:
@@ -39,6 +43,7 @@ class MasjidReportService:
             field_name=data.field_name,
             description=data.description,
             reporter_email=str(data.reporter_email) if data.reporter_email else None,
+            user_id=user_id,
         )
         await self.repo.commit()
 
@@ -81,6 +86,7 @@ class MasjidReportService:
                 status_code=status.HTTP_404_NOT_FOUND, detail="Report not found"
             )
 
+        newly_resolved = new_status == "resolved" and report.status != "resolved"
         await self.repo.update_status(report, new_status)
 
         if new_status == "resolved" and report.reporter_email:
@@ -104,6 +110,25 @@ class MasjidReportService:
             details={"new_status": new_status},
         )
         await self.repo.commit()
+
+        # An accepted (resolved) report attributed to a user counts toward
+        # Community Pillar (PRD 08); re-evaluate that user's badges. Only on a
+        # real transition into resolved (not a redundant re-resolve), best-effort
+        # after commit so a badge failure never undoes the status change —
+        # mirrors the donation/photo hooks.
+        if newly_resolved and report.user_id is not None:
+            try:
+                from app.services.gamification_service import GamificationService
+
+                await GamificationService(self.repo.db).reevaluate_badges(
+                    report.user_id
+                )
+            except Exception:
+                logger.exception(
+                    "Badge re-eval failed after report resolve %s", report_id
+                )
+                await self.repo.db.rollback()
+
         return _to_admin_response(report)
 
 

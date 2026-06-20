@@ -32,10 +32,12 @@ from app.models.donation import Donation
 from app.models.masjid import Masjid
 from app.models.masjid_campaign import MasjidCampaign
 from app.models.masjid_event import EventRsvp, MasjidEvent
+from app.models.masjid_report import MasjidReport
 from app.models.masjid_review import MasjidReview
 from app.models.recurring_schedule import RecurringSchedule
 from app.models.user_badge import UserBadge
 from app.models.user_checkin import UserCheckin
+from app.models.user_goal import UserGoal
 from app.models.user_journal_entry import UserJournalEntry
 from app.models.user_masjid_follow import UserMasjidFollow
 from app.models.user_profile import UserProfile
@@ -87,9 +89,7 @@ def auth_headers(
     masjid_id: uuid.UUID | None = None,
     aal: str = "aal1",
 ) -> dict:
-    return {
-        "Authorization": f"Bearer {make_token(user_id, role, masjid_id, aal)}"
-    }
+    return {"Authorization": f"Bearer {make_token(user_id, role, masjid_id, aal)}"}
 
 
 class Seeder:
@@ -226,10 +226,20 @@ class Seeder:
             await self.db.execute(
                 delete(UserJournalEntry).where(UserJournalEntry.user_id == uid)
             )
+            # goal_completions cascade off user_goals at the DB level.
+            await self.db.execute(delete(UserGoal).where(UserGoal.user_id == uid))
+            await self.db.execute(
+                delete(MasjidReport).where(MasjidReport.user_id == uid)
+            )
             await self.db.execute(delete(UserBadge).where(UserBadge.user_id == uid))
             await self.db.execute(delete(UserCheckin).where(UserCheckin.user_id == uid))
             await self.db.execute(delete(UserProfile).where(UserProfile.user_id == uid))
         for mid in self.masjid_ids:
+            # Reports SET NULL on masjid delete, so a row would survive — clear
+            # any (incl. guest) reports against this masjid first.
+            await self.db.execute(
+                delete(MasjidReport).where(MasjidReport.masjid_id == mid)
+            )
             # disbursements + any stray donations RESTRICT the masjid FK, so they
             # must clear before the cascade delete of the masjid itself.
             await self.db.execute(

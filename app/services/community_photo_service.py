@@ -292,5 +292,8 @@ class CommunityPhotoService:
                 logger.exception(
                     "Badge re-eval failed after photo approval %s", photo_id
                 )
+                # Clear the poisoned session so later use doesn't hit
+                # PendingRollbackError — matches the donation/report hooks.
+                await self.db.rollback()
         logger.info("Community photo %s", new_status, extra={"photo_id": str(photo_id)})
         return CommunityPhotoModerationResponse.model_validate(photo)
