@@ -70,6 +70,11 @@ class UserProfile(Base):
     mute_moderation_outcome: Mapped[bool] = mapped_column(
         Boolean, server_default=text("false"), nullable=False
     )
+    # PRD 09 #28 — photo-approval outcomes get their own switch in the settings UI,
+    # split from the masjid-submission/QnA "submission results" group above.
+    mute_photo_outcome: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("false"), nullable=False
+    )
     mute_promotions: Mapped[bool] = mapped_column(
         Boolean, server_default=text("false"), nullable=False
     )

@@ -28,6 +28,7 @@ class NotificationPreferenceService:
             mute_donation_nudge=profile.mute_donation_nudge,
             mute_campaign_milestone=profile.mute_campaign_milestone,
             mute_moderation_outcome=profile.mute_moderation_outcome,
+            mute_photo_outcome=profile.mute_photo_outcome,
             mute_promotions=profile.mute_promotions,
             masjids=[
                 FollowedMasjidPreference(
