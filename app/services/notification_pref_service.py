@@ -1,5 +1,6 @@
 import uuid
 
+from geoalchemy2.shape import to_shape
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import CurrentUser
@@ -31,13 +32,23 @@ class NotificationPreferenceService:
             mute_photo_outcome=profile.mute_photo_outcome,
             mute_promotions=profile.mute_promotions,
             masjids=[
-                FollowedMasjidPreference(
-                    masjid_id=masjid.masjid_id,
-                    name=masjid.name,
-                    notification_mode=mode,
-                )
-                for masjid, mode in rows
+                self._followed_pref(masjid, mode) for masjid, mode in rows
             ],
+        )
+
+    @staticmethod
+    def _followed_pref(masjid, mode) -> FollowedMasjidPreference:
+        lat = lng = None
+        if masjid.location is not None:
+            point = to_shape(masjid.location)
+            lat, lng = point.y, point.x
+        return FollowedMasjidPreference(
+            masjid_id=masjid.masjid_id,
+            name=masjid.name,
+            admin_region=masjid.admin_region,
+            latitude=lat,
+            longitude=lng,
+            notification_mode=mode,
         )
 
     async def get_preferences(

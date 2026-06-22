@@ -36,3 +36,5 @@ class MasjidReviewListResponse(BaseModel):
     page: int
     page_size: int
     average_rating: float | None
+    # Count of reviews per star value (keys "1"–"5"); drives the distribution bars.
+    rating_distribution: dict[int, int] | None = None

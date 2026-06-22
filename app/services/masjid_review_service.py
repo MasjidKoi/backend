@@ -93,12 +93,14 @@ class MasjidReviewService:
         offset = (page - 1) * page_size
         rows, total = await self.repo.list_by_masjid(masjid_id, offset, page_size)
         avg = await self.repo.get_average_rating(masjid_id)
+        distribution = await self.repo.get_rating_distribution(masjid_id)
         return MasjidReviewListResponse(
             items=[MasjidReviewResponse.model_validate(r) for r in rows],
             total=total,
             page=page,
             page_size=page_size,
             average_rating=avg,
+            rating_distribution=distribution,
         )
 
     async def delete_review(

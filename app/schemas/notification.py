@@ -27,6 +27,9 @@ class NotificationPreferencesUpdate(BaseModel):
 class FollowedMasjidPreference(BaseModel):
     masjid_id: uuid.UUID
     name: str
+    admin_region: str
+    latitude: float | None = None
+    longitude: float | None = None
     notification_mode: NotificationMode
 
 

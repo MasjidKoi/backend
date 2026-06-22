@@ -9,6 +9,7 @@ class EventCreate(BaseModel):
     description: str = Field(..., min_length=1)
     event_date: date
     event_time: time
+    event_end_time: time | None = None
     location: str = Field(..., max_length=300)
     capacity: int | None = Field(default=None, ge=1)
     rsvp_enabled: bool = False
@@ -19,6 +20,7 @@ class EventUpdate(BaseModel):
     description: str | None = None
     event_date: date | None = None
     event_time: time | None = None
+    event_end_time: time | None = None
     location: str | None = Field(default=None, max_length=300)
     capacity: int | None = None
     rsvp_enabled: bool | None = None
@@ -31,6 +33,7 @@ class EventResponse(BaseModel):
     description: str
     event_date: date
     event_time: time
+    event_end_time: time | None
     location: str
     capacity: int | None
     rsvp_enabled: bool
