@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     S3_BUCKET_IMPORTS: str = "masjidkoi-imports"
     S3_BUCKET_PHOTOS: str = "masjidkoi-photos"
     S3_BUCKET_AVATARS: str = "masjidkoi-avatars"
+    # Host that CLIENTS (browser/mobile) use to fetch objects. The boto3 client
+    # keeps using S3_ENDPOINT_URL (container-internal); only the public URLs we
+    # hand back are built from this. Defaults to the internal endpoint. Local dev:
+    # set to the published MinIO host (http://localhost:9090) so the simulator can
+    # load photos. Production: the CDN / public S3 host.
+    S3_PUBLIC_URL: str | None = None
 
     # ── SMTP ──────────────────────────────────────────────────────────────────────
     SMTP_HOST: str = "localhost"
@@ -116,6 +122,11 @@ class Settings(BaseSettings):
     @property
     def s3_endpoint(self) -> str:
         return self.S3_ENDPOINT_URL.get_secret_value()
+
+    @property
+    def s3_public_url(self) -> str:
+        """Public base URL for object links handed to clients (see S3_PUBLIC_URL)."""
+        return (self.S3_PUBLIC_URL or self.s3_endpoint).rstrip("/")
 
     @property
     def aws_key(self) -> str:

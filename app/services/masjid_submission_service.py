@@ -121,7 +121,7 @@ class MasjidSubmissionService:
             data=raw,
             content_type=content_type,
         )
-        url = f"{settings.s3_endpoint}/{settings.S3_BUCKET_PHOTOS}/{key}"
+        url = f"{settings.s3_public_url}/{settings.S3_BUCKET_PHOTOS}/{key}"
         logger.info(
             "Submission photo uploaded",
             extra={"user_id": str(user.user_id), "key": key},

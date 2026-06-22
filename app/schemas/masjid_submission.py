@@ -70,7 +70,7 @@ class MasjidSubmissionResponse(BaseModel):
         review queue can see it), derived from the stored key."""
         if not self.photo_key:
             return None
-        return f"{settings.s3_endpoint}/{settings.S3_BUCKET_PHOTOS}/{self.photo_key}"
+        return f"{settings.s3_public_url}/{settings.S3_BUCKET_PHOTOS}/{self.photo_key}"
 
 
 class MasjidSubmissionAdminResponse(MasjidSubmissionResponse):

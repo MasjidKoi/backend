@@ -143,7 +143,13 @@ class MasjidQuestionService:
 
     async def list_mine(self, user: CurrentUser) -> list[MyQuestionResponse]:
         rows = await self.repo.list_for_user(user.user_id)
-        return [MyQuestionResponse.model_validate(r) for r in rows]
+        names = await self.masjid_repo.names_by_ids([r.masjid_id for r in rows])
+        out: list[MyQuestionResponse] = []
+        for r in rows:
+            resp = MyQuestionResponse.model_validate(r)
+            resp.masjid_name = names.get(r.masjid_id)
+            out.append(resp)
+        return out
 
     # ── Public listing ─────────────────────────────────────────────────────────
 

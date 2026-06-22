@@ -157,7 +157,7 @@ class CommunityPhotoService:
             data=raw,
             content_type=content_type,
         )
-        url = f"{settings.s3_endpoint}/{settings.S3_BUCKET_PHOTOS}/{key}"
+        url = f"{settings.s3_public_url}/{settings.S3_BUCKET_PHOTOS}/{key}"
 
         photo = await self.repo.create(
             masjid_id=masjid_id,
@@ -201,7 +201,13 @@ class CommunityPhotoService:
         self, user: CurrentUser
     ) -> list[CommunityPhotoSubmissionResponse]:
         rows = await self.repo.list_community_for_user(user.user_id)
-        return [CommunityPhotoSubmissionResponse.model_validate(r) for r in rows]
+        names = await self.masjid_repo.names_by_ids([r.masjid_id for r in rows])
+        out: list[CommunityPhotoSubmissionResponse] = []
+        for r in rows:
+            resp = CommunityPhotoSubmissionResponse.model_validate(r)
+            resp.masjid_name = names.get(r.masjid_id)
+            out.append(resp)
+        return out
 
     # ── Moderation ─────────────────────────────────────────────────────────────
 
