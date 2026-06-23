@@ -100,6 +100,7 @@ class FeedService:
                 description=ev.description,
                 event_date=ev.event_date,
                 event_time=ev.event_time,
+                event_end_time=ev.event_end_time,
                 location=ev.location,
                 capacity=ev.capacity,
                 attendee_count=attendees,

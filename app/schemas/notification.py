@@ -20,12 +20,16 @@ class NotificationPreferencesUpdate(BaseModel):
     mute_donation_nudge: bool | None = None
     mute_campaign_milestone: bool | None = None
     mute_moderation_outcome: bool | None = None
+    mute_photo_outcome: bool | None = None
     mute_promotions: bool | None = None
 
 
 class FollowedMasjidPreference(BaseModel):
     masjid_id: uuid.UUID
     name: str
+    admin_region: str
+    latitude: float | None = None
+    longitude: float | None = None
     notification_mode: NotificationMode
 
 
@@ -38,5 +42,6 @@ class NotificationPreferencesResponse(BaseModel):
     mute_donation_nudge: bool
     mute_campaign_milestone: bool
     mute_moderation_outcome: bool
+    mute_photo_outcome: bool
     mute_promotions: bool
     masjids: list[FollowedMasjidPreference]

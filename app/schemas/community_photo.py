@@ -32,6 +32,7 @@ class CommunityPhotoSubmissionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     photo_id: uuid.UUID
     masjid_id: uuid.UUID
+    masjid_name: str | None = None
     url: str
     status: str
     created_at: datetime

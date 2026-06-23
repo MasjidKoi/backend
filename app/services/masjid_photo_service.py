@@ -81,7 +81,7 @@ class MasjidPhotoService:
             content_type=content_type,
         )
 
-        url = f"{settings.s3_endpoint}/{settings.S3_BUCKET_PHOTOS}/{key}"
+        url = f"{settings.s3_public_url}/{settings.S3_BUCKET_PHOTOS}/{key}"
         is_cover = count == 0
         photo = await self.repo.create(
             masjid_id=masjid_id,
@@ -140,7 +140,7 @@ class MasjidPhotoService:
             )
 
         # Extract key from URL for deletion
-        prefix = f"{settings.s3_endpoint}/{settings.S3_BUCKET_PHOTOS}/"
+        prefix = f"{settings.s3_public_url}/{settings.S3_BUCKET_PHOTOS}/"
         key = photo.url[len(prefix) :] if photo.url.startswith(prefix) else photo.url
 
         await storage.delete(bucket=settings.S3_BUCKET_PHOTOS, key=key)

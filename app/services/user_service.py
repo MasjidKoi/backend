@@ -146,12 +146,12 @@ class UserService:
             )
             # Delete old avatar from storage
             if profile.profile_photo_url:
-                old_prefix = f"{settings.s3_endpoint}/{settings.S3_BUCKET_AVATARS}/"
+                old_prefix = f"{settings.s3_public_url}/{settings.S3_BUCKET_AVATARS}/"
                 old_key = profile.profile_photo_url.removeprefix(old_prefix)
                 if old_key != profile.profile_photo_url:
                     await storage.delete(settings.S3_BUCKET_AVATARS, old_key)
             fields["profile_photo_url"] = (
-                f"{settings.s3_endpoint}/{settings.S3_BUCKET_AVATARS}/{key}"
+                f"{settings.s3_public_url}/{settings.S3_BUCKET_AVATARS}/{key}"
             )
 
         if fields:

@@ -24,6 +24,7 @@ class FeedEventItem(BaseModel):
     description: str
     event_date: date
     event_time: time
+    event_end_time: time | None
     location: str
     capacity: int | None
     attendee_count: int

@@ -58,6 +58,7 @@ class MyQuestionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     question_id: uuid.UUID
     masjid_id: uuid.UUID
+    masjid_name: str | None = None
     question: str
     status: str
     answer: str | None

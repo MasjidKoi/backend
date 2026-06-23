@@ -38,6 +38,7 @@ class MasjidEvent(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     event_date: Mapped[date] = mapped_column(Date, nullable=False)
     event_time: Mapped[time] = mapped_column(Time, nullable=False)
+    event_end_time: Mapped[time | None] = mapped_column(Time, nullable=True)
     location: Mapped[str] = mapped_column(String(300), nullable=False)
     capacity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rsvp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

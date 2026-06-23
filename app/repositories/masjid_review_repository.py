@@ -55,6 +55,19 @@ class MasjidReviewRepository(BaseRepository[MasjidReview]):
         avg = result.scalar_one_or_none()
         return float(avg) if avg is not None else None
 
+    async def get_rating_distribution(self, masjid_id: uuid.UUID) -> dict[int, int]:
+        """Count of reviews per star value (1–5). Always returns all five keys
+        (missing levels default to 0) so the client can render every bar."""
+        result = await self.db.execute(
+            select(MasjidReview.rating, func.count())
+            .where(MasjidReview.masjid_id == masjid_id)
+            .group_by(MasjidReview.rating)
+        )
+        counts = {star: 0 for star in range(1, 6)}
+        for rating, count in result.all():
+            counts[int(rating)] = int(count)
+        return counts
+
     async def delete(self, review: MasjidReview) -> None:
         await self.db.delete(review)
         await self.db.flush()

@@ -51,7 +51,7 @@ _MUTE_COLUMN_BY_TYPE: dict[PushMessageType, str | None] = {
     PushMessageType.RECURRING_NUDGE: "mute_donation_nudge",
     PushMessageType.CAMPAIGN_MILESTONE: "mute_campaign_milestone",
     PushMessageType.SUBMISSION_APPROVED: "mute_moderation_outcome",
-    PushMessageType.PHOTO_APPROVED: "mute_moderation_outcome",
+    PushMessageType.PHOTO_APPROVED: "mute_photo_outcome",
     PushMessageType.QNA_ANSWERED: "mute_moderation_outcome",
     PushMessageType.PLATFORM_PUSH: "mute_promotions",
     # Always-on — transactional / correctness
