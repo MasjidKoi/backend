@@ -120,6 +120,20 @@ async def sslcommerz_redirect(
                 logger.warning(
                     "redirect-path completion deferred to IPN for tran=%s", tran_id
                 )
+        elif outcome in ("fail", "cancel") and tran_id:
+            # SSLCommerz sends no IPN for a declined/cancelled payment, so the
+            # redirect is the only timely signal — persist PENDING → FAILED here
+            # rather than leaving the row PENDING until the 24h stale sweep.
+            # Safe: fail_from_redirect locks the row and only writes when it is
+            # still PENDING, so a valid IPN that completed first is never lost.
+            try:
+                await service.fail_from_redirect(tran_id=tran_id, reason=outcome)
+            except Exception:  # noqa: BLE001
+                # Best-effort — the stale sweep remains the backstop.
+                logger.warning(
+                    "redirect-path fail/cancel write deferred to sweep for tran=%s",
+                    tran_id,
+                )
 
     # Validate the id as a UUID so a crafted value can't inject extra path/query
     # segments into the deep-link Location header.

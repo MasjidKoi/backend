@@ -6,12 +6,33 @@ endpoint and the gateway redirect — they touch no real gateway and no network.
 """
 
 import uuid
+from decimal import Decimal
 
 import pytest
 
+from app.models.donation import Donation
+from app.models.enums import DonationStatus
 from tests.conftest import auth_headers
 
 pytestmark = pytest.mark.asyncio
+
+
+async def _pending_donation(
+    db, uid, masjid_id, *, status=DonationStatus.PENDING
+) -> Donation:
+    d = Donation(
+        user_id=uid,
+        masjid_id=masjid_id,
+        category="general",
+        status=status.value,
+        gross_amount=Decimal("500.00"),
+        fee_amount=Decimal("0.00"),
+        net_amount=Decimal("500.00"),
+        is_anonymous=False,
+    )
+    db.add(d)
+    await db.flush()
+    return d
 
 
 async def test_ipn_unknown_tran_returns_200_rejected(client):
@@ -60,6 +81,65 @@ async def test_redirect_unknown_outcome_falls_back_to_fail(client):
     )
     assert r.status_code == 303
     assert r.headers["location"].endswith("status=fail")
+
+
+@pytest.mark.parametrize("outcome", ["fail", "cancel"])
+async def test_redirect_fail_cancel_marks_pending_failed(client, db, seed, outcome):
+    # SSLCommerz sends no IPN for a declined/cancelled payment, so the POST
+    # redirect must persist PENDING → FAILED — otherwise the row sits PENDING
+    # and the donor sees "Pending" in history until the 24h stale sweep.
+    uid = await seed.user()
+    masjid = await seed.masjid(donations_enabled=True)
+    pending = await _pending_donation(db, uid, masjid.masjid_id)
+    await seed.commit()
+
+    r = await client.post(
+        f"/payments/sslcommerz/redirect/{outcome}?donation_id={pending.donation_id}",
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"].endswith(f"status={outcome}")
+
+    await db.refresh(pending)
+    assert pending.status == DonationStatus.FAILED.value
+
+
+async def test_redirect_fail_does_not_clobber_completed(client, db, seed):
+    # A valid IPN may complete the row before the fail/cancel redirect lands;
+    # the redirect must never overwrite a terminal state.
+    uid = await seed.user()
+    masjid = await seed.masjid(donations_enabled=True)
+    completed = await _pending_donation(
+        db, uid, masjid.masjid_id, status=DonationStatus.COMPLETED
+    )
+    await seed.commit()
+
+    r = await client.post(
+        f"/payments/sslcommerz/redirect/fail?donation_id={completed.donation_id}",
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    await db.refresh(completed)
+    assert completed.status == DonationStatus.COMPLETED.value
+
+
+async def test_redirect_fail_on_get_does_not_write(client, db, seed):
+    # The DB write is gated to POST (the real gateway method); a bare GET must
+    # not let anyone fail another donor's pending donation by URL alone.
+    uid = await seed.user()
+    masjid = await seed.masjid(donations_enabled=True)
+    pending = await _pending_donation(db, uid, masjid.masjid_id)
+    await seed.commit()
+
+    r = await client.get(
+        f"/payments/sslcommerz/redirect/fail?donation_id={pending.donation_id}",
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    await db.refresh(pending)
+    assert pending.status == DonationStatus.PENDING.value
 
 
 async def test_donation_status_requires_auth(client):
