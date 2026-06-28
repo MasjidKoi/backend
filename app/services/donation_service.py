@@ -426,6 +426,30 @@ class DonationService:
         )
         return donation
 
+    async def fail_from_redirect(self, *, tran_id: str, reason: str) -> None:
+        """Persist a PENDING → FAILED transition for a fail/cancel redirect.
+
+        SSLCommerz only fires an IPN for a *valid* settlement, so a declined or
+        user-cancelled payment otherwise has no server-to-server signal at all —
+        the row would sit PENDING until the 24h stale sweep and the donor would
+        see "Pending" in their history for a payment that already failed. The
+        redirect is the only timely signal for those outcomes, so we record it.
+
+        Best-effort and strictly safe: the row is taken FOR UPDATE so it can't
+        race a concurrent IPN, and ``fail`` only writes when the row is still
+        PENDING — a COMPLETED (or any terminal) row is never clobbered. A bad
+        tran_id or already-terminal row is a silent no-op; the stale sweep
+        remains the backstop if this write is lost.
+        """
+        try:
+            donation_id = uuid.UUID(str(tran_id))
+        except (ValueError, AttributeError):
+            return
+        donation = await self.repo.get_for_update(donation_id)
+        if donation is None:
+            return
+        await self.fail(donation, reason=reason)
+
     # ── Refund (→ REFUNDED, admin only) ──────────────────────────────────────
 
     async def refund(
