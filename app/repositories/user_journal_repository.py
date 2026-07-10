@@ -58,6 +58,34 @@ class UserJournalRepository(BaseRepository[UserJournalEntry]):
         )
         return int(result.scalar_one())
 
+    async def quran_daily_sums(
+        self,
+        user_id: uuid.UUID,
+        date_from: date,
+        date_to: date,
+    ) -> dict[tuple[str, date], int]:
+        """Per ``(unit, day)`` Qur'an totals over a window — the batched source
+        for computing many Qur'an-quantity goals' progress in one query instead
+        of an N+1 of ``sum_quran_amount`` per goal. A goal's total is the sum of
+        the buckets whose unit matches and whose day falls in its date window."""
+        result = await self.db.execute(
+            select(
+                UserJournalEntry.quran_unit,
+                UserJournalEntry.entry_date,
+                func.coalesce(func.sum(UserJournalEntry.quran_amount), 0),
+            )
+            .where(
+                UserJournalEntry.user_id == user_id,
+                UserJournalEntry.quran_unit.is_not(None),
+                UserJournalEntry.entry_date >= date_from,
+                UserJournalEntry.entry_date <= date_to,
+            )
+            .group_by(UserJournalEntry.quran_unit, UserJournalEntry.entry_date)
+        )
+        return {
+            (unit, entry_date): int(total) for unit, entry_date, total in result.all()
+        }
+
     async def list_by_user(
         self,
         user_id: uuid.UUID,

@@ -43,6 +43,23 @@ class UserGoalRepository(BaseRepository[UserGoal]):
         )
         return set(result.scalars().all())
 
+    async def completion_dates_for_goals(
+        self, goal_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, set[date]]:
+        """Batched completion dates for many goals — one query grouped in memory,
+        so listing N recurring goals costs a single round-trip instead of N."""
+        if not goal_ids:
+            return {}
+        result = await self.db.execute(
+            select(GoalCompletion.goal_id, GoalCompletion.completion_date).where(
+                GoalCompletion.goal_id.in_(goal_ids)
+            )
+        )
+        out: dict[uuid.UUID, set[date]] = {gid: set() for gid in goal_ids}
+        for goal_id, completion_date in result.all():
+            out[goal_id].add(completion_date)
+        return out
+
     async def add_completion(self, goal_id: uuid.UUID, completion_date: date) -> None:
         """Record a check-off. Idempotent at the DB level via the
         ``(goal_id, completion_date)`` unique constraint — the service wraps this

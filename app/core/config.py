@@ -116,6 +116,25 @@ class Settings(BaseSettings):
         return self.APP_ENV == "production"
 
     @property
+    def cors_origins(self) -> list[str]:
+        """Browser origins allowed to make credentialed cross-origin calls.
+
+        localhost dev origins are trusted only outside production so a page
+        served from localhost on a victim's machine cannot make credentialed
+        requests against the live API (CODEBASE_AUDIT #21). The production origin
+        value itself is tracked separately by #4.
+        """
+        prod_origins = ["https://admin.masjidkoi.me"]
+        if self.is_production:
+            return prod_origins
+        return [
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3000",
+            *prod_origins,
+        ]
+
+    @property
     def gotrue_base_url(self) -> str:
         return str(self.GOTRUE_URL).rstrip("/")
 

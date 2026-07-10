@@ -7,7 +7,7 @@ adapter seam (``FakeGateway``), never monkeypatched mid-module.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -513,3 +513,77 @@ async def test_completed_donations_activate_generous_giver(db, seed):
     giver = [b for b in badges if b.badge_type == BadgeType.GENEROUS_GIVER.value]
     assert giver, "Generous Giver tier should be awarded after 3 consecutive months"
     assert min(b.tier for b in giver) == 1
+
+
+# ── History pagination (keyset) — CODEBASE_AUDIT #19 ──────────────────────────
+
+
+async def _seed_completed_history(db, seed, n: int):
+    """Seed ``n`` completed donations for one user with strictly increasing
+    created_at, returning (user_id, masjid_id)."""
+    uid = await seed.user()
+    masjid = await seed.masjid(donations_enabled=True)
+    base = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    for i in range(n):
+        db.add(
+            Donation(
+                user_id=uid,
+                masjid_id=masjid.masjid_id,
+                category="general",
+                status=DonationStatus.COMPLETED.value,
+                gross_amount=Decimal("100.00"),
+                fee_amount=Decimal("0.00"),
+                net_amount=Decimal("100.00"),
+                is_anonymous=False,
+                created_at=base + timedelta(minutes=i),
+            )
+        )
+    await db.flush()
+    return uid, masjid.masjid_id
+
+
+async def test_history_no_phantom_cursor_on_exact_page(db, seed):
+    """When the total is an exact multiple of the page size, the last full page
+    must NOT emit a next_cursor (the phantom-empty-page bug would)."""
+    uid, _ = await _seed_completed_history(db, seed, 2)
+    svc = DonationService(db, gateway=FakeGateway())
+    page = await svc.get_history(
+        _user(uid),
+        masjid_id=None,
+        category=None,
+        status_=None,
+        year=None,
+        cursor=None,
+        limit=2,
+    )
+    assert len(page.items) == 2
+    assert page.next_cursor is None
+
+
+async def test_history_cursor_walks_to_final_page(db, seed):
+    """A genuine further page still yields a cursor; following it returns the
+    remainder and then stops with no trailing empty page."""
+    uid, _ = await _seed_completed_history(db, seed, 3)
+    svc = DonationService(db, gateway=FakeGateway())
+    p1 = await svc.get_history(
+        _user(uid),
+        masjid_id=None,
+        category=None,
+        status_=None,
+        year=None,
+        cursor=None,
+        limit=2,
+    )
+    assert len(p1.items) == 2
+    assert p1.next_cursor is not None
+    p2 = await svc.get_history(
+        _user(uid),
+        masjid_id=None,
+        category=None,
+        status_=None,
+        year=None,
+        cursor=p1.next_cursor,
+        limit=2,
+    )
+    assert len(p2.items) == 1
+    assert p2.next_cursor is None

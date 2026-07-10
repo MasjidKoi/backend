@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: masjidkoi_api
     ports:
-      - "8001:8000"
+      - "8000:8000"
     env_file:
       - .env
     volumes:
@@ -20,6 +20,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      # Python one-liner (no curl/wget in the slim runtime image); urlopen raises
+      # on non-200 / connection-refused so the check fails until uvicorn is
+      # serving and lifespan startup (Redis pool, scheduler) has completed.
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -162,13 +171,14 @@ services:
       context: ../frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8001}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
         NEXT_PUBLIC_APP_ENV: ${APP_ENV:-production}
     container_name: masjidkoi_frontend
     ports:
       - "3000:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true

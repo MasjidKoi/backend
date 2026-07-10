@@ -185,6 +185,73 @@ async def test_quran_progress_ignores_mismatched_unit(client, seed):
     assert refreshed["progress"]["current_amount"] == 0
 
 
+async def test_list_goals_batched_progress_matches(client, seed):
+    """The list endpoint computes progress via the batched (no-N+1) path — assert
+    it yields the same per-goal numbers the single-goal build would: unit-scoped
+    Qur'an sums over each goal's window, and per-goal recurring completions."""
+    user = await seed.user()
+    await seed.commit()
+    h = auth_headers(user)
+    end = TODAY + timedelta(days=9)
+
+    pages_goal = (
+        await client.post(
+            "/users/me/goals",
+            headers=h,
+            json={
+                "goal_kind": "quran_quantity",
+                "title": "Pages goal",
+                "target_amount": 100,
+                "unit": "pages",
+                "start_date": TODAY.isoformat(),
+                "end_date": end.isoformat(),
+            },
+        )
+    ).json()
+    juz_goal = (
+        await client.post(
+            "/users/me/goals",
+            headers=h,
+            json={
+                "goal_kind": "quran_quantity",
+                "title": "Juz goal",
+                "target_amount": 30,
+                "unit": "juz",
+                "start_date": TODAY.isoformat(),
+                "end_date": end.isoformat(),
+            },
+        )
+    ).json()
+    recurring_goal = (
+        await client.post(
+            "/users/me/goals/templates", headers=h, json={"template": "ayat_al_kursi"}
+        )
+    ).json()
+
+    # Log 20 pages today and check off the recurring goal once.
+    await client.post(
+        "/users/me/journal",
+        headers=h,
+        json={
+            "entry_date": TODAY.isoformat(),
+            "quran": {"amount": 20, "unit": "pages"},
+        },
+    )
+    await client.post(
+        f"/users/me/goals/{recurring_goal['goal_id']}/completions", headers=h, json={}
+    )
+
+    items = (await client.get("/users/me/goals", headers=h)).json()["items"]
+    by_id = {g["goal_id"]: g for g in items}
+
+    # Pages goal picks up the matching-unit log; juz goal must not (unit-scoped).
+    assert by_id[pages_goal["goal_id"]]["progress"]["current_amount"] == 20
+    assert by_id[juz_goal["goal_id"]]["progress"]["current_amount"] == 0
+    # Recurring goal reflects its own single completion, not the other goals'.
+    assert by_id[recurring_goal["goal_id"]]["progress"]["total_completions"] == 1
+    assert by_id[recurring_goal["goal_id"]]["progress"]["done_this_period"] is True
+
+
 # ── Recurring check-off ───────────────────────────────────────────────────────
 
 

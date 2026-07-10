@@ -137,11 +137,7 @@ app = FastAPI(
 # CORS — allow frontend dev server and production origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -217,11 +213,13 @@ async def health() -> JSONResponse:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "version": settings.VERSION,
             "environment": settings.APP_ENV,
+            # The detailed exception (db_error) is logged server-side only — never
+            # returned to unauthenticated callers, as asyncpg/SQLAlchemy errors
+            # leak internal host:port / DSN fragments useful for network recon.
             "checks": {
                 "api": "ok",
                 "database": db_status,
                 "postgis": postgis_version,
-                **({"error": db_error} if db_error else {}),
             },
         },
     )

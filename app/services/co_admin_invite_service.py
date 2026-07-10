@@ -181,6 +181,18 @@ class CoAdminInviteService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Active co-admin not found for this masjid",
             )
+        # A masjid-scoped co-admin may only revoke co-admins they invited
+        # themselves; this prevents horizontal takeover (a co-admin revoking the
+        # admin who invited them, or any peer they did not invite). Platform
+        # admins retain full control.
+        if not user.is_platform_admin and invite.invited_by_id != user.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Only the inviting admin or a platform admin "
+                    "can revoke this co-admin"
+                ),
+            )
         await gotrue.delete_user(uid)
         invite.status = "Revoked"
         await self.audit.log(

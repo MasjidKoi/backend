@@ -87,7 +87,7 @@ class GoalService:
         self, user: CurrentUser, status_filter: str | None
     ) -> GoalListResponse:
         goals = await self.repo.list_for_user(user.user_id, status=status_filter)
-        items = [await self._build_response(g, user) for g in goals]
+        items = await self._build_responses(goals, user)
         return GoalListResponse(items=items, total=len(items))
 
     async def get_goal(self, goal_id: uuid.UUID, user: CurrentUser) -> GoalResponse:
@@ -184,17 +184,69 @@ class GoalService:
             current = await self.journal_repo.sum_quran_amount(
                 user.user_id, goal.unit, goal.start_date, goal.end_date
             )
-            p = compute_quran_progress(
-                goal.target_amount, current, today, goal.end_date
-            )
-            progress = GoalProgress(
-                kind=goal.goal_kind, target_amount=goal.target_amount, **asdict(p)
-            )
+            progress = self._quran_progress(goal, current, today)
         else:
             dates = await self.repo.completion_dates(goal.goal_id)
-            r = compute_recurring_progress(goal.recurrence, dates, today)
-            progress = GoalProgress(kind=goal.goal_kind, **asdict(r))
+            progress = self._recurring_progress(goal, dates, today)
+        return self._to_response(goal, progress)
 
+    async def _build_responses(
+        self, goals: list[UserGoal], user: CurrentUser
+    ) -> list[GoalResponse]:
+        """Batched equivalent of ``_build_response`` for a list of goals.
+
+        Progress inputs are fetched in at most two queries total — one grouped
+        completion-dates query for recurring goals and one grouped Qur'an
+        daily-sums query — then progress is computed in memory, avoiding the
+        1 + N round-trips a per-goal build would incur."""
+        today = self._today()
+        quran_goals = [g for g in goals if g.goal_kind == GoalKind.QURAN_QUANTITY]
+        recurring_goals = [g for g in goals if g.goal_kind != GoalKind.QURAN_QUANTITY]
+
+        daily_sums: dict[tuple[str, date], int] = {}
+        if quran_goals:
+            date_from = min(g.start_date for g in quran_goals)
+            date_to = max(g.end_date for g in quran_goals)
+            daily_sums = await self.journal_repo.quran_daily_sums(
+                user.user_id, date_from, date_to
+            )
+
+        completions = await self.repo.completion_dates_for_goals(
+            [g.goal_id for g in recurring_goals]
+        )
+
+        items: list[GoalResponse] = []
+        for goal in goals:
+            if goal.goal_kind == GoalKind.QURAN_QUANTITY:
+                current = sum(
+                    amt
+                    for (unit, day), amt in daily_sums.items()
+                    if unit == goal.unit and goal.start_date <= day <= goal.end_date
+                )
+                progress = self._quran_progress(goal, current, today)
+            else:
+                progress = self._recurring_progress(
+                    goal, completions.get(goal.goal_id, set()), today
+                )
+            items.append(self._to_response(goal, progress))
+        return items
+
+    def _quran_progress(
+        self, goal: UserGoal, current: int, today: date
+    ) -> GoalProgress:
+        p = compute_quran_progress(goal.target_amount, current, today, goal.end_date)
+        return GoalProgress(
+            kind=goal.goal_kind, target_amount=goal.target_amount, **asdict(p)
+        )
+
+    def _recurring_progress(
+        self, goal: UserGoal, dates: set[date], today: date
+    ) -> GoalProgress:
+        r = compute_recurring_progress(goal.recurrence, dates, today)
+        return GoalProgress(kind=goal.goal_kind, **asdict(r))
+
+    @staticmethod
+    def _to_response(goal: UserGoal, progress: GoalProgress) -> GoalResponse:
         return GoalResponse(
             goal_id=goal.goal_id,
             goal_kind=goal.goal_kind,

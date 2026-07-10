@@ -646,15 +646,19 @@ class DonationService:
         cursor: datetime | None,
         limit: int = 20,
     ) -> DonationHistoryResponse:
+        # Over-fetch by one to detect whether a further page exists, so the last
+        # full page does not emit a phantom next_cursor pointing at an empty page.
         rows = await self.repo.list_for_user(
             user.user_id,
             masjid_id=masjid_id,
             category=category,
             status_=status_,
             year=year,
-            limit=limit,
+            limit=limit + 1,
             before=cursor,
         )
+        has_more = len(rows) > limit
+        rows = rows[:limit]
         items = [
             DonationHistoryItem(
                 donation_id=d.donation_id,
@@ -671,7 +675,7 @@ class DonationService:
             )
             for d, name in rows
         ]
-        next_cursor = items[-1].created_at if len(items) == limit else None
+        next_cursor = items[-1].created_at if has_more else None
         return DonationHistoryResponse(items=items, next_cursor=next_cursor)
 
     async def get_summary(self, user: CurrentUser) -> DonationSummaryResponse:
