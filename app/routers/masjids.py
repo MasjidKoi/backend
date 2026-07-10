@@ -66,7 +66,7 @@ _report_limiter = make_rate_limiter(limit=5, window_s=60, key_prefix="report")
     "",
     response_model=MasjidResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Create a masjid account (platform_admin + aal2)",
+    summary="Create a masjid account (platform_admin)",
 )
 async def create_masjid(
     body: MasjidCreate,
@@ -322,7 +322,7 @@ async def update_masjid(
 @router.post(
     "/{masjid_id}/verify",
     response_model=MasjidResponse,
-    summary="Grant verified badge (platform_admin + aal2)",
+    summary="Grant verified badge (platform_admin)",
 )
 async def verify_masjid(
     masjid_id: uuid.UUID,
@@ -335,7 +335,7 @@ async def verify_masjid(
 @router.post(
     "/{masjid_id}/suspend",
     response_model=MasjidResponse,
-    summary="Suspend masjid with reason (platform_admin + aal2)",
+    summary="Suspend masjid with reason (platform_admin)",
 )
 async def suspend_masjid(
     masjid_id: uuid.UUID,

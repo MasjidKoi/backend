@@ -304,13 +304,22 @@ class GoTrueClient:
             )
         _raise_for_gotrue(resp, "ban user")
 
-    async def delete_user(self, gotrue_user_id: UUID) -> None:
-        """DELETE /admin/users/{id}"""
+    async def delete_user(
+        self, gotrue_user_id: UUID, *, ignore_missing: bool = False
+    ) -> None:
+        """DELETE /admin/users/{id}
+
+        ``ignore_missing`` treats a 404 (identity already gone) as success, so a
+        retried idempotent operation — e.g. the account-purge sweep re-running
+        after a partial failure — does not raise on the second pass.
+        """
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.delete(
                 f"{self._base}/admin/users/{gotrue_user_id}",
                 headers=_admin_headers(),
             )
+        if ignore_missing and resp.status_code == status.HTTP_404_NOT_FOUND:
+            return
         _raise_for_gotrue(resp, "delete user")
 
     # ── MFA / TOTP (platform_admin enrollment) ────────────────────────────────

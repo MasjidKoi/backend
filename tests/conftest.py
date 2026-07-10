@@ -35,6 +35,7 @@ from app.models.masjid_event import EventRsvp, MasjidEvent
 from app.models.masjid_report import MasjidReport
 from app.models.masjid_review import MasjidReview
 from app.models.recurring_schedule import RecurringSchedule
+from app.models.support_ticket import SupportTicket
 from app.models.user_badge import UserBadge
 from app.models.user_checkin import UserCheckin
 from app.models.user_goal import UserGoal
@@ -233,6 +234,9 @@ class Seeder:
             )
             await self.db.execute(delete(UserBadge).where(UserBadge.user_id == uid))
             await self.db.execute(delete(UserCheckin).where(UserCheckin.user_id == uid))
+            await self.db.execute(
+                delete(SupportTicket).where(SupportTicket.user_id == uid)
+            )
             await self.db.execute(delete(UserProfile).where(UserProfile.user_id == uid))
         for mid in self.masjid_ids:
             # Reports SET NULL on masjid delete, so a row would survive — clear

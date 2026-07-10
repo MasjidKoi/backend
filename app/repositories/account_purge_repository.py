@@ -63,6 +63,19 @@ _DELETE_TABLES: list[tuple[type, str]] = [
     (RecurringSchedule, "user_id"),
 ]
 
+# Remapped tables that ALSO carry a direct-PII *snapshot* of the user's identity
+# (copied from the profile/GoTrue at write time), which re-keying alone leaves
+# behind. These columns are nulled in the same UPDATE so the row's aggregate
+# survives but the person is no longer identifiable — e.g. a public review keeps
+# its stars/body but loses the reviewer's real name, and a support ticket keeps
+# its category/description but loses the login email. Free-text the user authored
+# (review body, ticket subject/description) is content, not an identity snapshot,
+# so it is deliberately kept (mirrors the Donation carve-out below).
+_REMAP_BLANK_PII: dict[type, tuple[str, ...]] = {
+    MasjidReview: ("reviewer_display_name",),
+    SupportTicket: ("user_email",),
+}
+
 
 class AccountPurgeRepository(BaseRepository[UserProfile]):
     model = UserProfile
@@ -96,10 +109,13 @@ class AccountPurgeRepository(BaseRepository[UserProfile]):
             .values(user_id=pseudonym, donor_name=None, donor_email=None)
         )
         for model, column in _REMAP_TABLES:
+            # Re-key the identity UUID and, for tables that snapshot direct PII,
+            # null those columns in the same statement (see _REMAP_BLANK_PII).
+            pii_blanks = {c: None for c in _REMAP_BLANK_PII.get(model, ())}
             await self.db.execute(
                 update(model)
                 .where(getattr(model, column) == real_id)
-                .values(**{column: pseudonym})
+                .values(**{column: pseudonym}, **pii_blanks)
             )
         for model, column in _DELETE_TABLES:
             await self.db.execute(

@@ -8,7 +8,7 @@ Usage in routes:
     async def handler(user: CurrentUser = Depends(get_current_user)):
         ...
 
-    # Platform admin only (requires TOTP / aal2)
+    # Platform admin only (aal2/TOTP not enforced yet — see require_platform_admin)
     @router.post("/admin/masjids")
     async def create_masjid(user: CurrentUser = Depends(require_platform_admin)):
         ...
@@ -69,7 +69,12 @@ def require_platform_admin(
     user: CurrentUser = Depends(get_current_user),
 ) -> CurrentUser:
     """
-    Platform admin — aal1 or aal2 accepted (TOTP disabled for now).
+    Platform admin — role check only. aal1 or aal2 are BOTH accepted: the
+    aal2/TOTP second-factor gate is intentionally NOT enforced yet (TOTP
+    enforcement pending). This is the single source of truth for that posture —
+    docstrings elsewhere reference it. To require a second factor, uncomment the
+    aal2 assertion below (and ensure every platform admin has enrolled TOTP first,
+    or they will be locked out of /admin/*).
     """
     if user.role != AdminRole.PLATFORM_ADMIN:
         raise HTTPException(

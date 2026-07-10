@@ -61,9 +61,10 @@ _bearer = HTTPBearer(auto_error=True)
     response_model=TokenResponse,
     summary="Admin login (email + password)",
     description=(
-        "Returns a JWT with aal=aal1. Platform admins MUST then call "
-        "POST /auth/2fa/verify to upgrade to aal2 before accessing "
-        "protected admin endpoints."
+        "Returns a JWT with aal=aal1. Platform admins MAY additionally call "
+        "POST /auth/2fa/verify to upgrade to aal2. NOTE: aal2 is not currently "
+        "enforced on /admin/* endpoints (TOTP enforcement is pending — see "
+        "require_platform_admin); an aal1 platform-admin token is accepted today."
     ),
 )
 async def login(body: LoginRequest) -> TokenResponse:
@@ -215,7 +216,9 @@ async def enroll_totp(
     description=(
         "Verifies a 6-digit TOTP code for the enrolled factor. "
         "On success, GoTrue issues a new JWT with aal=aal2. "
-        "Platform admins MUST hold an aal2 token to access /admin/* endpoints."
+        "NOTE: aal2 is not currently enforced on /admin/* endpoints (TOTP "
+        "enforcement is pending — see require_platform_admin), so this step is "
+        "optional today."
     ),
 )
 async def verify_totp(
@@ -291,7 +294,8 @@ async def request_password_reset(body: PasswordResetRequest) -> None:
     description=(
         "Creates a GoTrue user with the given role in app_metadata and sends "
         "an invite email. The invitee sets their password on first login. "
-        "Requires platform_admin with aal2."
+        "Requires platform_admin (aal2 not currently enforced — see "
+        "require_platform_admin)."
     ),
 )
 async def invite_admin(

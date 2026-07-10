@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.user_profile import UserProfile
 from app.repositories.account_purge_repository import AccountPurgeRepository
+from app.services.gotrue_client import gotrue
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +64,20 @@ class AccountPurgeService:
 
     async def purge_profile(self, profile: UserProfile) -> uuid.UUID:
         """Anonymise one account in a single transaction. Returns the pseudonym
-        the content rows were re-keyed to."""
+        the content rows were re-keyed to.
+
+        The GoTrue auth identity (login email/phone — the most sensitive PII)
+        lives outside Postgres, so local anonymisation alone leaves it resolvable
+        forever. We DELETE it before committing ``purged_at``: if GoTrue is down
+        the exception rolls the whole account back (purged_at stays unset) and
+        run_due retries it on the next sweep, rather than silently marking it
+        purged while the identity survives. ``ignore_missing`` makes that retry
+        idempotent if a prior attempt already deleted the identity.
+        """
+        real_id = profile.user_id
         pseudonym = uuid.uuid4()
-        await self.repo.anonymize_user(profile.user_id, pseudonym)
+        await self.repo.anonymize_user(real_id, pseudonym)
+        await gotrue.delete_user(real_id, ignore_missing=True)
         await self.repo.mark_purged(profile, datetime.now(timezone.utc))
         await self.repo.commit()
         return pseudonym

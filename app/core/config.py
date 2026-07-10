@@ -7,6 +7,11 @@ class Settings(BaseSettings):
     VERSION: str = "0.1.0"
     APP_ENV: str = "development"
     LOG_LEVEL: str = "INFO"
+    # Comma-separated browser origins allowed to make credentialed cross-origin
+    # calls. When set (e.g. in .env.production) it is authoritative and used
+    # verbatim. When empty, cors_origins computes a default — the production
+    # origin, plus localhost dev origins only outside production. See #4/#21.
+    CORS_ORIGINS: str = ""
     # Run the in-process APScheduler in this instance. The bundled jobs (stale
     # sweep, recurring nudges, digest, announcement publish) must fan out from
     # exactly ONE runner. Leave true for a single process; set false on extra
@@ -119,12 +124,19 @@ class Settings(BaseSettings):
     def cors_origins(self) -> list[str]:
         """Browser origins allowed to make credentialed cross-origin calls.
 
-        localhost dev origins are trusted only outside production so a page
+        An explicit CORS_ORIGINS env value (comma-separated) is authoritative and
+        used verbatim, so production can be corrected/extended without an image
+        rebuild (CODEBASE_AUDIT #4). Otherwise the default is the production admin
+        origin — ``https://app.masjidkoi.me``, the host every other prod config
+        actually deploys (Caddyfile/FRONTEND_URL/APP_DOMAIN), not the never-
+        deployed ``admin.masjidkoi.me`` the old hardcoded list used — plus
+        localhost dev origins, which are trusted only outside production so a page
         served from localhost on a victim's machine cannot make credentialed
-        requests against the live API (CODEBASE_AUDIT #21). The production origin
-        value itself is tracked separately by #4.
+        requests against the live API (CODEBASE_AUDIT #21).
         """
-        prod_origins = ["https://admin.masjidkoi.me"]
+        if self.CORS_ORIGINS.strip():
+            return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+        prod_origins = ["https://app.masjidkoi.me"]
         if self.is_production:
             return prod_origins
         return [

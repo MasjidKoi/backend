@@ -9,19 +9,34 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import func, select
 
 from app.models.device_token import DeviceToken
 from app.models.donation import Donation
 from app.models.masjid_review import MasjidReview
 from app.models.recurring_schedule import RecurringSchedule
+from app.models.support_ticket import SupportTicket
 from app.models.user_badge import UserBadge
 from app.models.user_journal_entry import UserJournalEntry
 from app.models.user_profile import UserProfile
 from app.repositories.account_purge_repository import AccountPurgeRepository
 from app.services.account_purge_service import AccountPurgeService
+from app.services.gotrue_client import gotrue
 
 pytestmark = pytest.mark.asyncio
+
+
+def _fake_gotrue_delete(monkeypatch) -> list:
+    """Patch the GoTrue identity delete (no live GoTrue in tests) and return a
+    list that records the user_ids it was asked to delete."""
+    deleted: list = []
+
+    async def _delete(user_id, *, ignore_missing: bool = False) -> None:
+        deleted.append(user_id)
+
+    monkeypatch.setattr(gotrue, "delete_user", _delete)
+    return deleted
 
 
 async def _mark_deleted(db, uid: uuid.UUID, *, days_ago: int) -> UserProfile:
@@ -34,11 +49,27 @@ async def _mark_deleted(db, uid: uuid.UUID, *, days_ago: int) -> UserProfile:
     return profile
 
 
-async def test_purge_anonymizes_user_data(client, seed, db):
+async def test_purge_anonymizes_user_data(client, seed, db, monkeypatch):
+    deleted = _fake_gotrue_delete(monkeypatch)
     uid = await seed.user()
     masjid = await seed.masjid(donations_enabled=True)
     db.add(
-        MasjidReview(masjid_id=masjid.masjid_id, user_id=uid, rating=5, body="Great")
+        MasjidReview(
+            masjid_id=masjid.masjid_id,
+            user_id=uid,
+            rating=5,
+            body="Great",
+            reviewer_display_name="Real Name",
+        )
+    )
+    db.add(
+        SupportTicket(
+            user_id=uid,
+            user_email="real@donor.test",
+            category="Bug",
+            subject="Kept subject",
+            description="Kept description",
+        )
     )
     db.add(UserJournalEntry(user_id=uid, entry_date=date.today(), fajr=True))
     db.add(UserBadge(user_id=uid, badge_type="GenerousGiver", tier=1))
@@ -85,6 +116,7 @@ async def test_purge_anonymizes_user_data(client, seed, db):
         (UserJournalEntry, "user_id"),
         (UserBadge, "user_id"),
         (Donation, "user_id"),
+        (SupportTicket, "user_id"),
     ]:
         assert await count(model, col, uid) == 0
         assert await count(model, col, pseudonym) == 1
@@ -98,6 +130,30 @@ async def test_purge_anonymizes_user_data(client, seed, db):
         )
     ).one()
     assert name is None and email is None
+
+    # #2 — PII snapshots blanked on remapped content rows, but authored content kept.
+    review_name, review_body = (
+        await db.execute(
+            select(MasjidReview.reviewer_display_name, MasjidReview.body).where(
+                MasjidReview.user_id == pseudonym
+            )
+        )
+    ).one()
+    assert review_name is None  # real name no longer on the public review
+    assert review_body == "Great"  # content survives
+    ticket_email, ticket_subject = (
+        await db.execute(
+            select(SupportTicket.user_email, SupportTicket.subject).where(
+                SupportTicket.user_id == pseudonym
+            )
+        )
+    ).one()
+    assert ticket_email is None  # login email no longer on the ticket
+    assert ticket_subject == "Kept subject"  # content survives
+
+    # #3 — the GoTrue auth identity is deleted under the REAL id (login email/phone
+    # the most sensitive PII, lives outside Postgres).
+    assert uid in deleted
 
     # Unsafe-to-keep tables hard-deleted (no token keeps pushing / schedule charging).
     assert await count(DeviceToken, "user_id", uid) == 0
@@ -121,6 +177,30 @@ async def test_purge_anonymizes_user_data(client, seed, db):
     assert purged is not None
 
 
+async def test_purge_not_marked_when_gotrue_delete_fails(seed, db, monkeypatch):
+    """#3 fail-safe: a GoTrue outage during identity deletion rolls the account
+    back (purged_at stays unset) so it is retried on a later sweep — never
+    silently marked purged while the login identity survives in GoTrue."""
+    uid = await seed.user()
+    await seed.commit()
+    await _mark_deleted(db, uid, days_ago=31)
+
+    async def _boom(user_id, *, ignore_missing: bool = False) -> None:
+        raise HTTPException(status_code=502, detail="gotrue unreachable")
+
+    monkeypatch.setattr(gotrue, "delete_user", _boom)
+
+    purged = await AccountPurgeService(db).run_due()
+    assert purged == 0  # failure caught; nothing committed as purged
+
+    db.expire_all()
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    due_ids = {
+        p.user_id for p in await AccountPurgeRepository(db).find_due(cutoff, 500)
+    }
+    assert uid in due_ids  # still due → retried next sweep
+
+
 async def test_find_due_respects_window(seed, db):
     old = await seed.user()
     recent = await seed.user()
@@ -139,7 +219,8 @@ async def test_find_due_respects_window(seed, db):
     assert active not in due_ids
 
 
-async def test_run_due_is_idempotent(seed, db):
+async def test_run_due_is_idempotent(seed, db, monkeypatch):
+    _fake_gotrue_delete(monkeypatch)
     uid = await seed.user()
     await seed.device(uid)  # deleted by the purge — leaves no orphan
     await seed.commit()

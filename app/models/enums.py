@@ -10,7 +10,8 @@ class AdminRole(StrEnum):
     access to protected routes.
 
     Hierarchy:
-        PLATFORM_ADMIN  ─ full access to everything, requires TOTP (aal2)
+        PLATFORM_ADMIN  ─ full access to everything (TOTP/aal2 not currently
+                          enforced — see require_platform_admin)
         MASJID_ADMIN    ─ scoped to one masjid (app_metadata.masjid_id)
         MADRASHA_ADMIN  ─ scoped to one madrasha (app_metadata.madrasha_id)
     """
@@ -28,7 +29,10 @@ class AuthAssuranceLevel(StrEnum):
     AAL1 = password only
     AAL2 = password + second factor (TOTP)
 
-    Platform admins MUST have AAL2 to access sensitive endpoints.
+    NOTE: aal2 is NOT currently enforced anywhere — require_platform_admin gates
+    on role only (TOTP enforcement pending). ``has_mfa`` / this level are read for
+    display, not access control. Re-enable the aal2 assertion in
+    require_platform_admin to make this a hard requirement.
     """
 
     AAL1 = "aal1"
