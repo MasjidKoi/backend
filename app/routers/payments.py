@@ -33,6 +33,12 @@ router = APIRouter(prefix="/payments/sslcommerz", tags=["payments"])
 # Generous limit per IP — the gateway may legitimately fan IPNs, but a flood is
 # suspicious. Degrades gracefully if Redis is down.
 _ipn_limiter = make_rate_limiter(limit=120, window_s=60, key_prefix="sslcommerz_ipn")
+# The redirect is unauthenticated and, on a success POST, triggers the same
+# outbound gateway validation as the IPN — so it gets the same per-IP cap the IPN
+# has, instead of being an unlimited amplification/DoS surface (CODEBASE_AUDIT #8).
+_redirect_limiter = make_rate_limiter(
+    limit=120, window_s=60, key_prefix="sslcommerz_redirect"
+)
 
 _OUTCOMES = {"success", "fail", "cancel"}
 
@@ -94,6 +100,7 @@ async def sslcommerz_redirect(
     outcome: str,
     request: Request,
     donation_id: str = "",
+    _rl: None = Depends(_redirect_limiter),
     service: DonationService = Depends(get_donation_service),
 ) -> RedirectResponse:
     """SSLCommerz redirects here by **POST** (form-encoded transaction fields) —

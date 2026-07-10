@@ -281,6 +281,7 @@ async def list_masjids(
     q: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
+    user: CurrentUser | None = Depends(get_current_user_optional),
     service: MasjidService = Depends(get_masjid_service),
 ) -> MasjidAdminListResponse:
     return await service.list_for_admin(
@@ -290,6 +291,7 @@ async def list_masjids(
         q=q,
         page=page,
         page_size=page_size,
+        allow_all_statuses=bool(user and user.is_platform_admin),
     )
 
 
@@ -300,9 +302,10 @@ async def list_masjids(
 )
 async def get_masjid(
     masjid_id: uuid.UUID,
+    user: CurrentUser | None = Depends(get_current_user_optional),
     service: MasjidService = Depends(get_masjid_service),
 ) -> MasjidResponse:
-    return await service.get_by_id(masjid_id)
+    return await service.get_by_id(masjid_id, viewer=user)
 
 
 @router.patch(

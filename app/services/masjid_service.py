@@ -321,11 +321,17 @@ class MasjidService:
                 detail="Access restricted to your own masjid",
             )
 
-    def _to_response(self, masjid: Masjid) -> MasjidResponse:
+    def _to_response(
+        self, masjid: Masjid, *, include_moderation: bool = True
+    ) -> MasjidResponse:
         """
         Build MasjidResponse from ORM instance.
         Converts GeoAlchemy2 WKBElement → (latitude, longitude) floats here
         so the schema stays clean (no model_validator complexity).
+
+        ``suspension_reason`` is an internal moderation note — only surfaced when
+        ``include_moderation`` is set (platform_admin or the owning masjid_admin),
+        never to anonymous/other callers (CODEBASE_AUDIT #5).
         """
         point = to_shape(masjid.location)
         return MasjidResponse(
@@ -340,7 +346,9 @@ class MasjidService:
             donations_enabled=masjid.donations_enabled,
             timezone=masjid.timezone,
             description=masjid.description,
-            suspension_reason=masjid.suspension_reason,
+            suspension_reason=(
+                masjid.suspension_reason if include_moderation else None
+            ),
             created_at=masjid.created_at,
             updated_at=masjid.updated_at,
             facilities=(
@@ -366,14 +374,27 @@ class MasjidService:
 
     # ── Public reads ───────────────────────────────────────────────────────────
 
-    async def get_by_id(self, masjid_id: uuid.UUID) -> MasjidResponse:
+    async def get_by_id(
+        self, masjid_id: uuid.UUID, *, viewer: CurrentUser | None = None
+    ) -> MasjidResponse:
         masjid = await self.repo.get_by_id_with_relations(masjid_id)
         if not masjid:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Masjid not found",
             )
-        return self._to_response(masjid)
+        # Only platform admins or the owning masjid_admin may see a non-Active
+        # masjid or its internal suspension_reason; to everyone else a
+        # non-Active masjid is indistinguishable from a missing one (#5).
+        privileged = viewer is not None and (
+            viewer.is_platform_admin or viewer.masjid_id == masjid_id
+        )
+        if not privileged and masjid.status != MasjidStatus.ACTIVE:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Masjid not found",
+            )
+        return self._to_response(masjid, include_moderation=privileged)
 
     async def get_nearby(
         self,
@@ -485,7 +506,13 @@ class MasjidService:
         q: str | None,
         page: int,
         page_size: int,
+        allow_all_statuses: bool = False,
     ) -> MasjidAdminListResponse:
+        # This endpoint is public. Anonymous / non-platform callers may only ever
+        # see Active masjids — otherwise ?status=Suspended|Removed lets anyone
+        # enumerate moderation state (#5). Platform admins keep full filtering.
+        if not allow_all_statuses:
+            status_filter = MasjidStatus.ACTIVE.value
         rows, total = await self.repo.list_for_admin(
             status=status_filter,
             admin_region=admin_region,

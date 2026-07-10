@@ -202,6 +202,12 @@ class DonationService:
             donor_email=user.email,
         )
         await self.repo.add(donation)  # flush → donation_id available as tran_id
+        # Commit the PENDING row BEFORE the up-to-15s SSLCommerz create_session
+        # call so we don't hold a transaction — and thus pin a PgBouncer server
+        # connection — across external I/O on every checkout (mirrors the release
+        # complete_from_ipn does before validate_ipn). donation_id is a Python-side
+        # uuid4 assigned at flush, so it is already available as the tran_id below.
+        await self.repo.commit()
 
         base = settings.public_api_base_url
         did = str(donation.donation_id)

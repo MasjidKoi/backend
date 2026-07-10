@@ -4,30 +4,21 @@ Admin router — platform_admin only endpoints.
 
 import uuid
 
-import httpx
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings as app_settings
 from app.core.security import CurrentUser
-from app.db.session import get_db
+from app.dependencies.admin import get_admin_service
 from app.dependencies.admin_user import get_admin_user_service
 from app.dependencies.announcement import get_announcement_service
 from app.dependencies.auth import require_platform_admin
-from app.dependencies.masjid import get_masjid_service
 from app.dependencies.platform_settings import get_platform_settings_service
-from app.dependencies.push import get_push_service
-from app.repositories.audit_log_repository import AuditLogRepository
-from app.repositories.masjid_campaign_repository import MasjidCampaignRepository
-from app.repositories.user_profile_repository import UserProfileRepository
 from app.schemas.admin import (
     AdminStatsResponse,
+    AdminUserListResponse,
     AppUserListResponse,
     AppUserResponse,
-    AuditLogEntry,
     AuditLogListResponse,
     SuspendRequest,
-    UserGrowthPoint,
     UserGrowthResponse,
 )
 from app.schemas.announcement import AnnouncementPlatformListResponse
@@ -36,11 +27,10 @@ from app.schemas.platform_settings import (
     PlatformSettingsUpdate,
 )
 from app.schemas.push import BroadcastPushRequest, BroadcastPushResponse
+from app.services.admin_service import AdminService
 from app.services.admin_user_service import AdminUserService
 from app.services.announcement_service import AnnouncementService
-from app.services.masjid_service import MasjidService
 from app.services.platform_settings_service import PlatformSettingsService
-from app.services.push_service import PushService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -52,23 +42,9 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 )
 async def get_stats(
     _user: CurrentUser = Depends(require_platform_admin),
-    service: MasjidService = Depends(get_masjid_service),
-    ann_service: AnnouncementService = Depends(get_announcement_service),
-    db: AsyncSession = Depends(get_db),
+    service: AdminService = Depends(get_admin_service),
 ) -> AdminStatsResponse:
-    stats = await service.get_stats()
-    total_ann, published_ann = await ann_service.repo.get_counts()
-    profile_repo = UserProfileRepository(db)
-    campaign_repo = MasjidCampaignRepository(db)
-    total_users = await profile_repo.count_non_deleted()
-    active_campaigns = await campaign_repo.get_active_count()
-    return AdminStatsResponse(
-        **stats,
-        total_announcements=total_ann,
-        published_announcements=published_ann,
-        total_users=total_users,
-        active_campaigns=active_campaigns,
-    )
+    return await service.get_stats()
 
 
 @router.get(
@@ -80,32 +56,9 @@ async def get_audit_log(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     _user: CurrentUser = Depends(require_platform_admin),
-    db: AsyncSession = Depends(get_db),
+    service: AdminService = Depends(get_admin_service),
 ) -> AuditLogListResponse:
-    repo = AuditLogRepository(db)
-    rows, total = await repo.get_paginated(
-        offset=(page - 1) * page_size,
-        limit=page_size,
-    )
-    return AuditLogListResponse(
-        items=[
-            AuditLogEntry(
-                log_id=r.log_id,
-                admin_id=r.admin_id,
-                admin_email=r.admin_email,
-                admin_role=r.admin_role,
-                action=r.action,
-                target_entity=r.target_entity,
-                target_id=r.target_id,
-                ip_address=r.ip_address,
-                created_at=r.created_at,
-            )
-            for r in rows
-        ],
-        total=total,
-        page=page,
-        page_size=page_size,
-    )
+    return await service.get_audit_log(page, page_size)
 
 
 @router.get(
@@ -125,35 +78,14 @@ async def list_all_announcements(
 
 @router.get(
     "/users",
+    response_model=AdminUserListResponse,
     summary="List all admin users from GoTrue (platform_admin)",
 )
 async def list_admin_users(
     _user: CurrentUser = Depends(require_platform_admin),
-) -> dict:
-    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
-        resp = await client.get(
-            f"{app_settings.gotrue_base_url}/admin/users",
-            headers={
-                "Authorization": f"Bearer {app_settings.GOTRUE_SERVICE_ROLE_KEY}",
-                "apikey": app_settings.GOTRUE_SERVICE_ROLE_KEY,
-            },
-        )
-    if not resp.is_success:
-        return {"users": []}
-    data = resp.json()
-    users = [
-        {
-            "id": u["id"],
-            "email": u.get("email"),
-            "role": u.get("app_metadata", {}).get("role"),
-            "masjid_id": u.get("app_metadata", {}).get("masjid_id"),
-            "created_at": u.get("created_at"),
-            "confirmed_at": u.get("email_confirmed_at"),
-            "invited_at": u.get("invited_at"),
-        }
-        for u in data.get("users", [])
-    ]
-    return {"users": users, "total": len(users)}
+    service: AdminUserService = Depends(get_admin_user_service),
+) -> AdminUserListResponse:
+    return await service.list_admin_users()
 
 
 # ── App-User Management ───────────────────────────────────────────────────────
@@ -225,14 +157,9 @@ async def delete_app_user(
 async def user_growth(
     period: str = Query(default="daily", pattern="^(daily|weekly|monthly)$"),
     _user: CurrentUser = Depends(require_platform_admin),
-    db: AsyncSession = Depends(get_db),
+    service: AdminService = Depends(get_admin_service),
 ) -> UserGrowthResponse:
-    repo = UserProfileRepository(db)
-    data = await repo.get_growth(period)
-    return UserGrowthResponse(
-        data=[UserGrowthPoint(period=p, count=c) for p, c in data],
-        period=period,
-    )
+    return await service.get_user_growth(period)
 
 
 # ── Platform Settings ─────────────────────────────────────────────────────────
@@ -276,20 +203,8 @@ async def update_settings(
 async def broadcast_push(
     body: BroadcastPushRequest,
     user: CurrentUser = Depends(require_platform_admin),
-    push: PushService = Depends(get_push_service),
-    db: AsyncSession = Depends(get_db),
+    service: AdminService = Depends(get_admin_service),
 ) -> BroadcastPushResponse:
-    # PRD 03 PLATFORM_PUSH — Eid / Ramadan-start / urgent notices. Best-effort
-    # fan-out to all registered devices (never raises).
-    count = await push.broadcast_platform_push(body.title, body.body, body.data)
-    # Audit this high-impact platform-wide action (who, what, reach).
-    await AuditLogRepository(db).log(
-        admin_id=user.user_id,
-        admin_email=user.email,
-        admin_role=user.role,
-        action="broadcast_platform_push",
-        target_entity="platform_push",
-        details={"title": body.title, "devices_notified": count},
-    )
-    await db.commit()
-    return BroadcastPushResponse(devices_notified=count)
+    # PRD 03 PLATFORM_PUSH — Eid / Ramadan-start / urgent notices. The service
+    # owns the best-effort fan-out, the audit write, and the commit.
+    return await service.broadcast_push(body.title, body.body, body.data, user)

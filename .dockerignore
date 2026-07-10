@@ -7,7 +7,14 @@ __pycache__
 *.pyo
 *.pyd
 .Python
+# Never bake secrets into the build context. .env alone did NOT match
+# .env.production (Docker uses filepath.Match, no implicit prefix glob), so real
+# prod secrets were copied into the migrate image. Exclude every env file, but
+# keep the *.example templates so they can still be COPYed if ever needed.
 .env
+.env.*
+!.env.example
+!.env.*.example
 .pytest_cache
 .coverage
 htmlcov/

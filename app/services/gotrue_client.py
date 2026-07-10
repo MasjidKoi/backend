@@ -275,6 +275,21 @@ class GoTrueClient:
 
         return {**user, "app_metadata": app_metadata}
 
+    async def list_users(self) -> list[dict]:
+        """GET /admin/users — the raw GoTrue user list. Returns an empty list on
+        failure (the admin panel degrades gracefully rather than erroring)."""
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.get(
+                f"{self._base}/admin/users",
+                headers=_admin_headers(),
+            )
+        if not resp.is_success:
+            logger.error(
+                "GoTrue list users failed: %s %s", resp.status_code, resp.text
+            )
+            return []
+        return resp.json().get("users", [])
+
     async def update_user_app_metadata(
         self,
         gotrue_user_id: UUID,

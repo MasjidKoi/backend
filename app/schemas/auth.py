@@ -62,6 +62,18 @@ class TOTPVerifyRequest(BaseModel):
         return v
 
 
+class MfaFactor(BaseModel):
+    """One verified TOTP factor for the current user."""
+
+    id: str
+    status: str
+    friendly_name: str | None = None
+
+
+class MfaFactorsResponse(BaseModel):
+    factors: list[MfaFactor]
+
+
 class PasswordResetRequest(BaseModel):
     email: EmailStr
 

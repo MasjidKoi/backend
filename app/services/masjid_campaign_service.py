@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import CurrentUser
+from app.repositories.donation_repository import DonationRepository
 from app.repositories.masjid_campaign_repository import MasjidCampaignRepository
 from app.repositories.masjid_repository import MasjidRepository
 from app.schemas.masjid_campaign import (
@@ -21,6 +22,7 @@ class MasjidCampaignService:
     def __init__(self, db: AsyncSession) -> None:
         self.repo = MasjidCampaignRepository(db)
         self.masjid_repo = MasjidRepository(db)
+        self.donation_repo = DonationRepository(db)
 
     def _check_scope(self, user: CurrentUser, masjid_id: uuid.UUID) -> None:
         if user.is_platform_admin:
@@ -152,6 +154,17 @@ class MasjidCampaignService:
         progress_pct = round(float(raised / target * 100), 2) if target > 0 else 0.0
         days_remaining = max(0, (campaign.end_date - today).days)
 
+        # Derive donor_count / average_donation from completed donations rather
+        # than the previous hardcoded 0 / None.
+        donor_count, completed_count, gross_sum = (
+            await self.donation_repo.campaign_completed_stats(campaign_id)
+        )
+        average_donation = (
+            (gross_sum / completed_count).quantize(Decimal("0.01"))
+            if completed_count
+            else None
+        )
+
         return CampaignAnalyticsResponse(
             campaign_id=campaign.campaign_id,
             title=campaign.title,
@@ -160,6 +173,6 @@ class MasjidCampaignService:
             raised_amount=campaign.raised_amount,
             progress_pct=progress_pct,
             days_remaining=days_remaining,
-            donor_count=0,
-            average_donation=None,
+            donor_count=donor_count,
+            average_donation=average_donation,
         )

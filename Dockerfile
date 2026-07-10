@@ -3,7 +3,8 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
-    UV_PROJECT_ENVIRONMENT=/app/.venv
+    UV_PROJECT_ENVIRONMENT=/app/.venv \
+    UV_HTTP_TIMEOUT=300
 
 WORKDIR /app
 
@@ -17,6 +18,15 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
+
+# Stage 1b: Migrate — builder + dev deps (psycopg2 sync driver) so Alembic can
+# run. The runtime image deliberately ships neither the dev deps nor the
+# migrations/ + alembic.ini tree, so prod migrations run from this stage instead.
+# Build with:  docker compose -f docker-compose.prod.yml run --rm migrate
+FROM builder AS migrate
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen
+CMD ["uv", "run", "alembic", "upgrade", "head"]
 
 # Stage 2: Runtime — lean image, no uv, no build tools
 FROM python:3.12-slim AS runtime
@@ -46,4 +56,10 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# --proxy-headers + --forwarded-allow-ips=* so request.client.host reflects the
+# real client from Caddy's X-Forwarded-For, not Caddy's container IP — otherwise
+# every external client collapses into one rate-limit bucket and the logs record
+# the proxy (CODEBASE_AUDIT #9). Trusting all upstreams is safe here: the api is
+# only `expose`d on the internal docker network and is unreachable except via
+# Caddy (docker-compose.prod.yml), so no untrusted peer can spoof the header.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*"]

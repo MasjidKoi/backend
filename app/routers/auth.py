@@ -20,18 +20,18 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import CurrentUser
-from app.db.session import get_db
 from app.dependencies.auth import get_current_user, require_platform_admin
 from app.dependencies.co_admin_invite import get_co_admin_invite_service
+from app.dependencies.mfa import get_mfa_service
 from app.dependencies.otp_auth import get_otp_auth_service
 from app.models.enums import AdminRole
 from app.schemas.auth import (
     AdminInviteRequest,
     AdminInviteResponse,
     LoginRequest,
+    MfaFactorsResponse,
     OtpRequest,
     OtpRequestResponse,
     OtpTokenResponse,
@@ -45,6 +45,7 @@ from app.schemas.auth import (
 from app.schemas.co_admin_invite import CoAdminAcceptRequest, CoAdminDeclineRequest
 from app.services.co_admin_invite_service import CoAdminInviteService
 from app.services.gotrue_client import gotrue
+from app.services.mfa_service import MfaService
 from app.services.otp_auth_service import OtpAuthService
 
 logger = logging.getLogger(__name__)
@@ -117,9 +118,11 @@ async def request_otp(
 )
 async def verify_otp(
     body: OtpVerifyRequest,
+    request: Request,
     service: OtpAuthService = Depends(get_otp_auth_service),
 ) -> OtpTokenResponse:
-    return await service.verify_otp(str(body.email), body.code)
+    client_ip = request.client.host if request.client else "unknown"
+    return await service.verify_otp(str(body.email), body.code, client_ip)
 
 
 # ── Refresh ────────────────────────────────────────────────────────────────────
@@ -239,36 +242,16 @@ async def verify_totp(
 
 @router.get(
     "/2fa/factors",
+    response_model=MfaFactorsResponse,
     summary="List enrolled TOTP factors for the current user",
     description="Returns verified TOTP factors from DB. Used by frontend to determine "
     "whether to show /login/enroll (empty) or /login/2fa (has factors).",
 )
 async def list_factors(
     user: CurrentUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    from sqlalchemy import text as sql_text
-
-    result = await db.execute(
-        sql_text(
-            "SELECT id, status, friendly_name "
-            "FROM auth.mfa_factors "
-            "WHERE user_id = :uid AND factor_type = 'totp' AND status = 'verified' "
-            "ORDER BY created_at"
-        ),
-        {"uid": str(user.user_id)},
-    )
-    rows = result.mappings().all()
-    return {
-        "factors": [
-            {
-                "id": str(r["id"]),
-                "status": r["status"],
-                "friendly_name": r["friendly_name"],
-            }
-            for r in rows
-        ]
-    }
+    service: MfaService = Depends(get_mfa_service),
+) -> MfaFactorsResponse:
+    return await service.list_factors(user.user_id)
 
 
 # ── Password reset ─────────────────────────────────────────────────────────────

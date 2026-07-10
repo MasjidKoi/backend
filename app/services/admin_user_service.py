@@ -8,7 +8,12 @@ from app.core.security import CurrentUser
 from app.models.user_profile import UserProfile
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.user_profile_repository import UserProfileRepository
-from app.schemas.admin import AppUserListResponse, AppUserResponse
+from app.schemas.admin import (
+    AdminUserItem,
+    AdminUserListResponse,
+    AppUserListResponse,
+    AppUserResponse,
+)
 from app.services.gotrue_client import gotrue
 
 
@@ -30,6 +35,24 @@ class AdminUserService:
     def __init__(self, db: AsyncSession) -> None:
         self.profile_repo = UserProfileRepository(db)
         self.audit_repo = AuditLogRepository(db)
+
+    async def list_admin_users(self) -> AdminUserListResponse:
+        """Project GoTrue's admin/staff accounts into the client shape. The GoTrue
+        call (auth headers, error handling) lives in GoTrueClient, not the route."""
+        raw = await gotrue.list_users()
+        users = [
+            AdminUserItem(
+                id=u["id"],
+                email=u.get("email"),
+                role=u.get("app_metadata", {}).get("role"),
+                masjid_id=u.get("app_metadata", {}).get("masjid_id"),
+                created_at=u.get("created_at"),
+                confirmed_at=u.get("email_confirmed_at"),
+                invited_at=u.get("invited_at"),
+            )
+            for u in raw
+        ]
+        return AdminUserListResponse(users=users, total=len(users))
 
     async def list_app_users(
         self, search: str | None, page: int, page_size: int

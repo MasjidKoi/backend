@@ -141,6 +141,25 @@ class DonationRepository(BaseRepository[Donation]):
         )
         return [uid for (uid,) in rows.all()]
 
+    async def campaign_completed_stats(
+        self, campaign_id: uuid.UUID
+    ) -> tuple[int, int, Decimal]:
+        """``(distinct_donors, completed_count, gross_sum)`` for a campaign's
+        COMPLETED donations — powers campaign analytics (donor_count and
+        average_donation). One aggregate query, all zero/0 when none exist."""
+        row = await self.db.execute(
+            select(
+                func.count(func.distinct(Donation.user_id)),
+                func.count(),
+                func.coalesce(func.sum(Donation.gross_amount), 0),
+            ).where(
+                Donation.campaign_id == campaign_id,
+                Donation.status == DonationStatus.COMPLETED,
+            )
+        )
+        donors, count, gross = row.one()
+        return int(donors), int(count), Decimal(gross)
+
     async def net_by_masjid(self) -> dict[uuid.UUID, Decimal]:
         """Net completed donations grouped by masjid — credit side for the
         platform-wide balances view."""

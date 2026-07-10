@@ -66,3 +66,20 @@ class UserGrowthPoint(BaseModel):
 class UserGrowthResponse(BaseModel):
     data: list[UserGrowthPoint]
     period: str
+
+
+class AdminUserItem(BaseModel):
+    """One admin/staff account as projected from GoTrue's admin user list."""
+
+    id: str
+    email: str | None = None
+    role: str | None = None
+    masjid_id: str | None = None
+    created_at: str | None = None
+    confirmed_at: str | None = None
+    invited_at: str | None = None
+
+
+class AdminUserListResponse(BaseModel):
+    users: list[AdminUserItem]
+    total: int

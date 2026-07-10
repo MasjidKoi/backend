@@ -16,9 +16,10 @@ GoTrue intentionally returns the SAME error for a wrong code and an expired code
 fails while a live code still exists it was wrong; if no live code exists it
 expired.
 
-Redis degrades gracefully (mirrors app/core/rate_limit.py): if it is unavailable
-the flow still works, but policy can't be enforced and wrong-vs-expired collapses
-to a generic invalid-code response.
+Redis backs every abuse control here (lockout, send caps, per-IP verify cap,
+wrong-vs-expired). Because those protections guard the most exposed auth surface,
+the service FAILS CLOSED when Redis is unavailable — request/verify return 503
+rather than silently skipping the caps and lockout (CODEBASE_AUDIT #6).
 """
 
 import logging
@@ -40,6 +41,10 @@ CODE_TTL_S = 600  # 10 minutes
 MAX_VERIFY_ATTEMPTS = 5
 PER_EMAIL_HOURLY_CAP = 5
 PER_IP_HOURLY_CAP = 30
+# Verify attempts from one source across ALL target emails per hour. The
+# per-email lockout (5) only bounds a single target; this bounds a spray attack
+# hammering /otp/verify against many emails from one IP.
+PER_IP_VERIFY_HOURLY_CAP = 50
 HOURLY_WINDOW_S = 3600
 
 
@@ -63,6 +68,10 @@ def _ip_cap_key(ip: str) -> str:
     return f"otp:cap:ip:{ip}"
 
 
+def _ip_verify_key(ip: str) -> str:
+    return f"otp:verify:ip:{ip}"
+
+
 class OtpAuthService:
     def __init__(self, db: AsyncSession, redis: Redis | None) -> None:
         self.db = db
@@ -77,53 +86,64 @@ class OtpAuthService:
 
         When called inside the resend cooldown (or once a send cap is hit) no new
         code is sent; the response reports the seconds the client must wait.
+
+        Fails closed with 503 when Redis is unavailable (the cooldown/send caps
+        can't be enforced, so we refuse rather than allow an uncapped flood).
         """
         email = email.strip().lower()
+        redis = self._require_redis()
 
-        if self.redis is not None:
-            # Inside the resend window → don't send, just report time remaining.
-            cooldown_ttl = await self._ttl(_cooldown_key(email))
-            if cooldown_ttl > 0:
-                return OtpRequestResponse(retry_after_seconds=cooldown_ttl)
+        # Inside the resend window → don't send, just report time remaining.
+        cooldown_ttl = await self._ttl(_cooldown_key(email))
+        if cooldown_ttl > 0:
+            return OtpRequestResponse(retry_after_seconds=cooldown_ttl)
 
-            # Hourly abuse caps (per-email and per-IP). Still 202 to avoid leaking.
-            capped_for = await self._check_send_caps(email, client_ip)
-            if capped_for is not None:
-                logger.warning("OTP send cap hit (email=%s ip=%s)", email, client_ip)
-                return OtpRequestResponse(retry_after_seconds=capped_for)
+        # Hourly abuse caps (per-email and per-IP). Still 202 to avoid leaking.
+        capped_for = await self._check_send_caps(email, client_ip)
+        if capped_for is not None:
+            logger.warning("OTP send cap hit (email=%s ip=%s)", email, client_ip)
+            return OtpRequestResponse(retry_after_seconds=capped_for)
 
         # Provision the account if needed, then let GoTrue email the code.
         await gotrue.ensure_consumer_user(email)
         await gotrue.send_email_otp(email)
 
-        if self.redis is not None:
-            await self.redis.set(_cooldown_key(email), "1", ex=RESEND_COOLDOWN_S)
-            await self.redis.set(_issued_key(email), "1", ex=CODE_TTL_S)
-            # A fresh code resets the attempt budget for the old one.
-            await self.redis.delete(_attempts_key(email))
+        await redis.set(_cooldown_key(email), "1", ex=RESEND_COOLDOWN_S)
+        await redis.set(_issued_key(email), "1", ex=CODE_TTL_S)
+        # A fresh code resets the attempt budget for the old one.
+        await redis.delete(_attempts_key(email))
 
         return OtpRequestResponse(retry_after_seconds=RESEND_COOLDOWN_S)
 
     # ── Verify a code ────────────────────────────────────────────────────────────
 
-    async def verify_otp(self, email: str, code: str) -> OtpTokenResponse:
+    async def verify_otp(
+        self, email: str, code: str, client_ip: str
+    ) -> OtpTokenResponse:
         email = email.strip().lower()
+        redis = self._require_redis()
 
-        # Hard lockout before we ever ask GoTrue.
-        if self.redis is not None:
-            attempts = int(await self.redis.get(_attempts_key(email)) or 0)
-            if attempts >= MAX_VERIFY_ATTEMPTS:
-                raise _too_many_attempts()
+        # Per-IP verify throttle — bounds a spray attack hammering many target
+        # emails from one source, which the per-email lockout alone cannot.
+        ip_attempts = await self._incr_with_expiry(
+            _ip_verify_key(client_ip), HOURLY_WINDOW_S
+        )
+        if ip_attempts > PER_IP_VERIFY_HOURLY_CAP:
+            raise _too_many_attempts()
+
+        # Hard per-email lockout before we ever ask GoTrue.
+        attempts = int(await redis.get(_attempts_key(email)) or 0)
+        if attempts >= MAX_VERIFY_ATTEMPTS:
+            raise _too_many_attempts()
 
         session = await gotrue.verify_email_otp(email, code)
         if session is None:
             raise await self._classify_verify_failure(email)
 
         # Success — clear all OTP state for this email.
-        if self.redis is not None:
-            await self.redis.delete(
-                _cooldown_key(email), _issued_key(email), _attempts_key(email)
-            )
+        await redis.delete(
+            _cooldown_key(email), _issued_key(email), _attempts_key(email)
+        )
 
         user_id = self._extract_user_id(session)
         is_new_user = await self._bootstrap_profile(user_id)
@@ -137,6 +157,17 @@ class OtpAuthService:
         )
 
     # ── Internals ────────────────────────────────────────────────────────────────
+
+    def _require_redis(self) -> Redis:
+        """Every OTP abuse control lives in Redis; when it is down we fail closed
+        (503) rather than silently dropping the caps/lockout (CODEBASE_AUDIT #6)."""
+        if self.redis is None:
+            logger.error("OTP requested while Redis is unavailable — failing closed")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"code": "otp_unavailable"},
+            )
+        return self.redis
 
     async def _classify_verify_failure(self, email: str) -> HTTPException:
         """Resolve GoTrue's ambiguous rejection into wrong / expired / locked-out."""
