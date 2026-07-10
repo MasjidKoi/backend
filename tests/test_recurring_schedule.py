@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.models.donation import Donation
 from app.models.enums import DonationStatus, RecurringScheduleStatus
 from app.models.recurring_schedule import RecurringSchedule
+from app.repositories.recurring_schedule_repository import RecurringScheduleRepository
 from app.schemas.recurring_schedule import (
     RecurringScheduleCreate,
     RecurringScheduleUpdate,
@@ -24,6 +25,7 @@ from app.services.recurring_schedule_service import (
     advance_next_due,
     compute_next_due,
 )
+from tests.conftest import TestSession
 from tests.test_donation_ledger import _user
 
 # asyncio_mode="auto" runs async tests automatically; the pure-math tests below
@@ -176,6 +178,40 @@ async def test_run_due_nudges_advances_and_sends_once(db, seed):
     # Advanced to the next future cycle; not run again on a second sweep.
     assert refreshed.next_due_at > now
     assert await svc.run_due_nudges(now=now) == 0
+
+
+async def test_due_uses_for_update_skip_locked(db, seed):
+    """A concurrent sweep runner must not read schedules another runner has
+    already locked — FOR UPDATE SKIP LOCKED makes the second reader skip them
+    (never block, never double-nudge/advance). Regression for CODEBASE_AUDIT #25.
+    """
+    uid = await seed.user()
+    masjid = await seed.masjid(donations_enabled=True)
+    sched = RecurringSchedule(
+        user_id=uid,
+        masjid_id=masjid.masjid_id,
+        category="general",
+        amount=Decimal("100.00"),
+        frequency="weekly",
+        start_date=date(2026, 5, 1),
+        next_due_at=datetime(2026, 6, 1, 3, 0, tzinfo=UTC),
+        status="active",
+    )
+    db.add(sched)
+    await seed.commit()  # commit so a second connection sees the row
+
+    now = datetime(2026, 6, 20, 12, 0, tzinfo=UTC)
+
+    # Runner A locks the due row on a separate connection and holds its txn open.
+    async with TestSession() as db2:
+        locked = await RecurringScheduleRepository(db2).due(now)
+        assert len(locked) == 1  # runner A grabbed it
+
+        # Runner B (concurrent sweep) sees zero due rows — skipped, not blocked.
+        also_due = await RecurringScheduleRepository(db).due(now)
+        assert also_due == []
+
+        await db2.rollback()  # release the lock before teardown cascade
 
 
 async def test_bounded_nightly_cancels_past_end_date(db, seed):

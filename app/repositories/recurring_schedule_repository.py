@@ -31,7 +31,13 @@ class RecurringScheduleRepository(BaseRepository[RecurringSchedule]):
         return rows.scalar_one_or_none()
 
     async def due(self, now: datetime, limit: int = 500) -> list[RecurringSchedule]:
-        """Active schedules whose next nudge is due — the recurring-nudge sweep."""
+        """Lock active schedules whose next nudge is due — the recurring-nudge
+        sweep. ``FOR UPDATE SKIP LOCKED`` means a concurrent sweep runner (e.g.
+        the Redis singleton lock failed open, or a future multi-replica
+        deployment) cannot read the same rows and double-send / double-advance:
+        it skips the locked rows instead. The caller MUST advance ``next_due_at``
+        (or cancel) and commit in the SAME transaction, so the lock window covers
+        the read-modify-write; push delivery happens only after that commit."""
         rows = await self.db.execute(
             select(RecurringSchedule)
             .where(
@@ -40,5 +46,6 @@ class RecurringScheduleRepository(BaseRepository[RecurringSchedule]):
             )
             .order_by(RecurringSchedule.next_due_at.asc())
             .limit(limit)
+            .with_for_update(skip_locked=True)
         )
         return list(rows.scalars().all())
