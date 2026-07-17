@@ -126,6 +126,10 @@ class CoAdminInviteService:
         invite.last_resent_at = now
         invite.expires_at = now + timedelta(hours=INVITE_TTL_HOURS)
         await self.repo.commit()
+        # updated_at has onupdate=func.now(), so the UPDATE expires it; reload
+        # inside the async context before serialising, else _to_response triggers
+        # a lazy load post-commit → MissingGreenlet (greenlet_spawn error).
+        await self.repo.refresh(invite)
         return _to_response(invite)
 
     async def accept(self, data: CoAdminAcceptRequest) -> TokenResponse:
