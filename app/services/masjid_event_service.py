@@ -1,10 +1,11 @@
 import uuid
-from datetime import date
+from datetime import datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import CurrentUser
+from app.core.time import DHAKA_TZ
 from app.repositories.masjid_event_repository import MasjidEventRepository
 from app.repositories.masjid_repository import MasjidRepository
 from app.schemas.masjid_event import (
@@ -84,7 +85,7 @@ class MasjidEventService:
     ) -> EventResponse:
         self._check_scope(user, masjid_id)
         await self._get_masjid_or_404(masjid_id)
-        if data.event_date < date.today():
+        if data.event_date < datetime.now(DHAKA_TZ).date():
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="event_date must be today or in the future",
@@ -116,7 +117,10 @@ class MasjidEventService:
         self._check_scope(user, masjid_id)
         event = await self._get_event_or_404(event_id, masjid_id)
         fields = data.model_dump(exclude_unset=True)
-        if "event_date" in fields and fields["event_date"] < date.today():
+        if (
+            "event_date" in fields
+            and fields["event_date"] < datetime.now(DHAKA_TZ).date()
+        ):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="event_date must be today or in the future",

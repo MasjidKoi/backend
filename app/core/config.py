@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     # per-job lock guards against accidental duplication — see core/scheduler.py.
     SCHEDULER_ENABLED: bool = True
 
+    # Enforce aal2 (verified TOTP second factor) on money/destructive
+    # platform-admin routes. Defaults False so today's behavior is unchanged —
+    # flip to true (via .env) only after every platform admin has enrolled TOTP,
+    # or they will be locked out of those routes. See require_platform_admin_mfa.
+    REQUIRE_ADMIN_MFA: bool = False
+
     # PRD 09 #1 — days after a DELETE /users/me soft-delete before the purge job
     # anonymises the account. The 202 response and settings copy promise 30.
     ACCOUNT_PURGE_WINDOW_DAYS: int = 30

@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import redis.asyncio as aioredis
-from fastapi import FastAPI, status
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -144,6 +144,33 @@ app.add_middleware(
 )
 
 app.add_middleware(LoggingMiddleware)
+
+
+# ── Unhandled-error handler ─────────────────────────────────────────────────────
+# Starlette's ServerErrorMiddleware is always the OUTERMOST layer, so a genuine
+# 500 bypasses CORSMiddleware and the browser drops the response as a cross-origin
+# error the client JS can never read (it just sees an opaque network failure).
+# Reordering middleware cannot fix this; instead we handle the exception ourselves
+# and stamp the same Access-Control-Allow-* headers CORSMiddleware would have, so
+# the browser exposes the error to the caller. The body is deliberately generic —
+# no exception text — since internals must never leak (see /health).
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception(
+        "Unhandled error on %s %s", request.method, request.url.path
+    )
+    headers: dict[str, str] = {}
+    origin = request.headers.get("origin")
+    if origin and origin in settings.cors_origins:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+        headers["Vary"] = "Origin"
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "Internal Server Error"},
+        headers=headers,
+    )
+
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(auth.router)

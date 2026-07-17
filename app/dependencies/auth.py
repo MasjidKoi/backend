@@ -27,6 +27,7 @@ Usage in routes:
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from app.core.config import settings
 from app.core.security import CurrentUser, decode_token
 from app.models.enums import AdminRole, AuthAssuranceLevel
 
@@ -84,6 +85,26 @@ def require_platform_admin(
     # TODO: re-enable aal2 check when TOTP is stable
     # if user.aal != AuthAssuranceLevel.AAL2:
     #     raise HTTPException(status_code=403, detail="Two-factor authentication required")
+    return user
+
+
+def require_platform_admin_mfa(
+    user: CurrentUser = Depends(require_platform_admin),
+) -> CurrentUser:
+    """Stricter platform-admin guard for money/destructive routes.
+
+    Always enforces the platform-admin role (via require_platform_admin). Only
+    when settings.REQUIRE_ADMIN_MFA is True does it additionally require an aal2
+    (verified-TOTP) token, returning 403 otherwise. The flag defaults False, so
+    behavior is UNCHANGED today — this is wired onto the sensitive routes now so
+    MFA can be turned on with a single config flip once every platform admin has
+    enrolled TOTP. Do NOT hard-enable here.
+    """
+    if settings.REQUIRE_ADMIN_MFA and user.aal != AuthAssuranceLevel.AAL2:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Two-factor authentication required",
+        )
     return user
 
 

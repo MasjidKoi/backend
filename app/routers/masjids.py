@@ -55,7 +55,11 @@ from app.services.user_masjid_follow_service import UserMasjidFollowService
 router = APIRouter(prefix="/masjids", tags=["masjids"])
 
 _nearby_limiter = make_rate_limiter(limit=30, window_s=60, key_prefix="nearby")
-_report_limiter = make_rate_limiter(limit=5, window_s=60, key_prefix="report")
+# fail_closed=True: the public, unauthenticated report-submission surface must
+# not become un-limited if Redis is down.
+_report_limiter = make_rate_limiter(
+    limit=5, window_s=60, key_prefix="report", fail_closed=True
+)
 
 # NOTE: all static paths (/nearby, /search, /bulk-import, /export, /merge, /reports)
 # must be declared BEFORE /{masjid_id} — otherwise FastAPI tries to parse the

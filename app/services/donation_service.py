@@ -22,6 +22,8 @@ State machine (each transition is one transaction):
 FAILED is terminal — a retry is a new donation, prefilled client-side.
 """
 
+import base64
+import binascii
 import logging
 import uuid
 from dataclasses import dataclass
@@ -69,6 +71,25 @@ logger = logging.getLogger(__name__)
 MIN_AMOUNT = Decimal("10")
 MAX_AMOUNT = Decimal("500000")
 _TWO_PLACES = Decimal("0.01")
+
+
+def _encode_history_cursor(created_at: datetime, donation_id: uuid.UUID) -> str:
+    """Opaque keyset cursor carrying the full stable sort key
+    ``(created_at, donation_id)`` so pagination is tie-safe (mirrors the feed)."""
+    raw = f"{created_at.isoformat()}|{donation_id}".encode()
+    return base64.urlsafe_b64encode(raw).decode()
+
+
+def _decode_history_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
+    try:
+        parts = base64.urlsafe_b64decode(cursor.encode()).decode().split("|")
+        if len(parts) != 2:
+            raise ValueError("expected 2 parts")
+        return datetime.fromisoformat(parts[0]), uuid.UUID(parts[1])
+    except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid cursor"
+        ) from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -379,8 +400,9 @@ class DonationService:
         year = now.astimezone(DHAKA_TZ).year
         seq = await self.repo.next_receipt_seq(year)
         donation.receipt_number = f"MK-{year}-{seq:06d}"
+        new_raised: Decimal | None = None
         if donation.campaign_id is not None:
-            await self.repo.bump_campaign_raised(
+            new_raised = await self.repo.bump_campaign_raised(
                 donation.campaign_id, donation.gross_amount
             )
         await self.repo.commit()
@@ -408,7 +430,7 @@ class DonationService:
             },
         )
 
-        await self._post_completion_effects(donation)
+        await self._post_completion_effects(donation, new_raised=new_raised)
         return donation
 
     # ── Fail (→ FAILED) ────────────────────────────────────────────────────────
@@ -432,29 +454,12 @@ class DonationService:
         )
         return donation
 
-    async def fail_from_redirect(self, *, tran_id: str, reason: str) -> None:
-        """Persist a PENDING → FAILED transition for a fail/cancel redirect.
-
-        SSLCommerz only fires an IPN for a *valid* settlement, so a declined or
-        user-cancelled payment otherwise has no server-to-server signal at all —
-        the row would sit PENDING until the 24h stale sweep and the donor would
-        see "Pending" in their history for a payment that already failed. The
-        redirect is the only timely signal for those outcomes, so we record it.
-
-        Best-effort and strictly safe: the row is taken FOR UPDATE so it can't
-        race a concurrent IPN, and ``fail`` only writes when the row is still
-        PENDING — a COMPLETED (or any terminal) row is never clobbered. A bad
-        tran_id or already-terminal row is a silent no-op; the stale sweep
-        remains the backstop if this write is lost.
-        """
-        try:
-            donation_id = uuid.UUID(str(tran_id))
-        except (ValueError, AttributeError):
-            return
-        donation = await self.repo.get_for_update(donation_id)
-        if donation is None:
-            return
-        await self.fail(donation, reason=reason)
+    # NOTE: a fail_from_redirect() path used to mark PENDING → FAILED from the
+    # unauthenticated /payments/sslcommerz/redirect fail/cancel branch. It was
+    # removed (CODEBASE_AUDIT #10): the redirect's donation_id is client-supplied
+    # and not gateway-verified, so failing on it let anyone force another donor's
+    # pending donation to FAILED by URL. Declined/cancelled payments are now
+    # failed only by the authoritative IPN and the 24h stale-pending sweep.
 
     # ── Refund (→ REFUNDED, admin only) ──────────────────────────────────────
 
@@ -649,9 +654,10 @@ class DonationService:
         category: str | None,
         status_: str | None,
         year: int | None,
-        cursor: datetime | None,
+        cursor: str | None,
         limit: int = 20,
     ) -> DonationHistoryResponse:
+        before = _decode_history_cursor(cursor) if cursor else None
         # Over-fetch by one to detect whether a further page exists, so the last
         # full page does not emit a phantom next_cursor pointing at an empty page.
         rows = await self.repo.list_for_user(
@@ -661,7 +667,7 @@ class DonationService:
             status_=status_,
             year=year,
             limit=limit + 1,
-            before=cursor,
+            before=before,
         )
         has_more = len(rows) > limit
         rows = rows[:limit]
@@ -681,7 +687,12 @@ class DonationService:
             )
             for d, name in rows
         ]
-        next_cursor = items[-1].created_at if has_more else None
+        next_cursor = None
+        if has_more and rows:
+            last_donation = rows[-1][0]
+            next_cursor = _encode_history_cursor(
+                last_donation.created_at, last_donation.donation_id
+            )
         return DonationHistoryResponse(items=items, next_cursor=next_cursor)
 
     async def get_summary(self, user: CurrentUser) -> DonationSummaryResponse:
@@ -801,7 +812,9 @@ class DonationService:
 
     # ── Post-commit side effects (best-effort) ────────────────────────────────
 
-    async def _post_completion_effects(self, donation: Donation) -> None:
+    async def _post_completion_effects(
+        self, donation: Donation, *, new_raised: Decimal | None = None
+    ) -> None:
         """Email + push + badge re-eval, after the completion has committed.
 
         Every effect is best-effort and isolated: a side-effect failure must
@@ -829,23 +842,31 @@ class DonationService:
             logger.exception("donation %s: badge re-eval failed", donation.donation_id)
             await self.db.rollback()
         try:
-            await self._maybe_campaign_milestone(donation)
+            await self._maybe_campaign_milestone(donation, new_raised=new_raised)
         except Exception:
             logger.exception("donation %s: milestone push failed", donation.donation_id)
             await self.db.rollback()
 
-    async def _maybe_campaign_milestone(self, donation: Donation) -> None:
+    async def _maybe_campaign_milestone(
+        self, donation: Donation, *, new_raised: Decimal | None = None
+    ) -> None:
         """Fire CAMPAIGN_MILESTONE to every donor of the campaign, exactly once —
-        on the completion that pushed raised_amount across the target."""
-        if donation.campaign_id is None:
+        on the completion that pushed raised_amount across the target.
+
+        The crossing is judged from ``new_raised`` — the raised_amount produced by
+        THIS increment's atomic RETURNING — not a fresh post-commit read. Under
+        concurrent completions a re-read could reflect another transaction's bump,
+        which would let two completions both see (or both miss) the crossing; the
+        per-increment value makes "the completion that crossed the target" exact.
+        """
+        if donation.campaign_id is None or new_raised is None:
             return
         campaign = await self.campaign_repo.get_by_id(donation.campaign_id)
         if campaign is None:
             return
         crossed_now = (
-            campaign.raised_amount >= campaign.target_amount
-            and (campaign.raised_amount - donation.gross_amount)
-            < campaign.target_amount
+            new_raised >= campaign.target_amount
+            and (new_raised - donation.gross_amount) < campaign.target_amount
         )
         if not crossed_now:
             return

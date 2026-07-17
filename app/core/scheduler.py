@@ -14,6 +14,20 @@ logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler(timezone="UTC")
 
+# One lazily-initialised Redis client, reused across every job tick. Previously
+# each _run_singleton call opened a fresh connection via from_url and aclose()d
+# it, churning a connection per job per tick; a single module-level client (which
+# owns its own connection pool) avoids that. It is process-lived — the pool is
+# reclaimed on interpreter exit, matching the scheduler's own lifetime.
+_lock_redis: "aioredis.Redis | None" = None
+
+
+def _get_lock_redis() -> "aioredis.Redis":
+    global _lock_redis
+    if _lock_redis is None:
+        _lock_redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+    return _lock_redis
+
 
 async def _run_singleton(
     job_id: str, ttl_s: int, job: Callable[[], Awaitable[None]]
@@ -26,24 +40,18 @@ async def _run_singleton(
     in) and auto-expires before the next tick. Fails OPEN — runs unguarded if
     Redis is down, matching the rate limiter — because skipping a sweep is worse
     than a rare duplicate."""
-    redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+    redis = _get_lock_redis()
     try:
-        try:
-            claimed = await redis.set(f"joblock:{job_id}", "1", nx=True, ex=ttl_s)
-        except Exception as exc:
-            logger.warning(
-                "Job-lock unavailable for %s (running unguarded): %s", job_id, exc
-            )
-            claimed = True
-        if not claimed:
-            logger.info("Job %s already claimed this tick — skipping", job_id)
-            return
-        await job()
-    finally:
-        try:
-            await redis.aclose()
-        except Exception:
-            pass
+        claimed = await redis.set(f"joblock:{job_id}", "1", nx=True, ex=ttl_s)
+    except Exception as exc:
+        logger.warning(
+            "Job-lock unavailable for %s (running unguarded): %s", job_id, exc
+        )
+        claimed = True
+    if not claimed:
+        logger.info("Job %s already claimed this tick — skipping", job_id)
+        return
+    await job()
 
 
 async def publish_scheduled_announcements() -> None:

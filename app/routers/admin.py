@@ -10,7 +10,10 @@ from app.core.security import CurrentUser
 from app.dependencies.admin import get_admin_service
 from app.dependencies.admin_user import get_admin_user_service
 from app.dependencies.announcement import get_announcement_service
-from app.dependencies.auth import require_platform_admin
+from app.dependencies.auth import (
+    require_platform_admin,
+    require_platform_admin_mfa,
+)
 from app.dependencies.platform_settings import get_platform_settings_service
 from app.schemas.admin import (
     AdminStatsResponse,
@@ -114,7 +117,7 @@ async def list_app_users(
 async def suspend_user(
     user_id: uuid.UUID,
     body: SuspendRequest,
-    acting_user: CurrentUser = Depends(require_platform_admin),
+    acting_user: CurrentUser = Depends(require_platform_admin_mfa),
     service: AdminUserService = Depends(get_admin_user_service),
 ) -> AppUserResponse:
     return await service.suspend(user_id, body.reason, acting_user)
@@ -127,7 +130,7 @@ async def suspend_user(
 )
 async def unsuspend_user(
     user_id: uuid.UUID,
-    acting_user: CurrentUser = Depends(require_platform_admin),
+    acting_user: CurrentUser = Depends(require_platform_admin_mfa),
     service: AdminUserService = Depends(get_admin_user_service),
 ) -> AppUserResponse:
     return await service.unsuspend(user_id, acting_user)
@@ -140,7 +143,7 @@ async def unsuspend_user(
 )
 async def delete_app_user(
     user_id: uuid.UUID,
-    acting_user: CurrentUser = Depends(require_platform_admin),
+    acting_user: CurrentUser = Depends(require_platform_admin_mfa),
     service: AdminUserService = Depends(get_admin_user_service),
 ) -> None:
     await service.delete(user_id, acting_user)
@@ -185,7 +188,7 @@ async def get_settings(
 )
 async def update_settings(
     body: PlatformSettingsUpdate,
-    user: CurrentUser = Depends(require_platform_admin),
+    user: CurrentUser = Depends(require_platform_admin_mfa),
     service: PlatformSettingsService = Depends(get_platform_settings_service),
 ) -> PlatformSettingsResponse:
     settings = await service.update(body, user)
@@ -202,7 +205,7 @@ async def update_settings(
 )
 async def broadcast_push(
     body: BroadcastPushRequest,
-    user: CurrentUser = Depends(require_platform_admin),
+    user: CurrentUser = Depends(require_platform_admin_mfa),
     service: AdminService = Depends(get_admin_service),
 ) -> BroadcastPushResponse:
     # PRD 03 PLATFORM_PUSH — Eid / Ramadan-start / urgent notices. The service

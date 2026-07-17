@@ -84,10 +84,12 @@ async def test_redirect_unknown_outcome_falls_back_to_fail(client):
 
 
 @pytest.mark.parametrize("outcome", ["fail", "cancel"])
-async def test_redirect_fail_cancel_marks_pending_failed(client, db, seed, outcome):
-    # SSLCommerz sends no IPN for a declined/cancelled payment, so the POST
-    # redirect must persist PENDING → FAILED — otherwise the row sits PENDING
-    # and the donor sees "Pending" in history until the 24h stale sweep.
+async def test_redirect_fail_cancel_does_not_write(client, db, seed, outcome):
+    # CODEBASE_AUDIT #10: the redirect is unauthenticated and the donation_id is
+    # client-supplied and NOT gateway-verified, so a fail/cancel redirect must NOT
+    # transition the row — otherwise anyone could force another donor's PENDING
+    # donation to FAILED by URL. It still renders the deep-link; the authoritative
+    # IPN and the 24h stale-pending sweep own the actual failure transition.
     uid = await seed.user()
     masjid = await seed.masjid(donations_enabled=True)
     pending = await _pending_donation(db, uid, masjid.masjid_id)
@@ -101,7 +103,7 @@ async def test_redirect_fail_cancel_marks_pending_failed(client, db, seed, outco
     assert r.headers["location"].endswith(f"status={outcome}")
 
     await db.refresh(pending)
-    assert pending.status == DonationStatus.FAILED.value
+    assert pending.status == DonationStatus.PENDING.value
 
 
 async def test_redirect_fail_does_not_clobber_completed(client, db, seed):

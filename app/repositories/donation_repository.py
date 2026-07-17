@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.donation import Donation
@@ -46,17 +46,25 @@ class DonationRepository(BaseRepository[Donation]):
 
     async def bump_campaign_raised(
         self, campaign_id: uuid.UUID, delta: Decimal
-    ) -> None:
+    ) -> Decimal | None:
         """Atomic ``raised_amount += delta`` — no read-modify-write, no recompute.
 
         Used with +gross on completion and −gross on refund, inside the same
         transaction as the donation's status flip.
+
+        Returns the NEW ``raised_amount`` produced by THIS increment (via
+        ``RETURNING``) so the caller can detect a milestone crossing from its own
+        atomic result rather than a post-commit re-read — which, under concurrent
+        completions, could observe another transaction's bump and either miss or
+        double-fire the "fully funded" push. ``None`` if the campaign is missing.
         """
-        await self.db.execute(
+        result = await self.db.execute(
             update(MasjidCampaign)
             .where(MasjidCampaign.campaign_id == campaign_id)
             .values(raised_amount=MasjidCampaign.raised_amount + delta)
+            .returning(MasjidCampaign.raised_amount)
         )
+        return result.scalar_one_or_none()
 
     async def next_receipt_seq(self, year: int) -> int:
         """Allocate the next gapless receipt number for the year (atomic upsert)."""
@@ -181,13 +189,15 @@ class DonationRepository(BaseRepository[Donation]):
         status_: str | None = None,
         year: int | None = None,
         limit: int = 20,
-        before: datetime | None = None,
+        before: tuple[datetime, uuid.UUID] | None = None,
     ) -> list[tuple[Donation, str]]:
         """A page of the donor's history, newest first, with masjid name.
 
-        Keyset paginated on created_at (``before`` = the previous page's last
-        created_at). Returns ``limit`` rows at most; the caller derives the next
-        cursor from the last row.
+        Keyset paginated on the stable sort key ``(created_at, donation_id)``
+        (``before`` = the previous page's last row's ``(created_at, donation_id)``)
+        so ties on ``created_at`` can't drop or duplicate rows across pages — same
+        pattern as FeedRepository. Returns ``limit`` rows at most; the caller
+        derives the next cursor from the last row.
         """
         conds = [Donation.user_id == user_id]
         if masjid_id is not None:
@@ -201,12 +211,14 @@ class DonationRepository(BaseRepository[Donation]):
                 func.extract("year", func.timezone(_DHAKA, Donation.created_at)) == year
             )
         if before is not None:
-            conds.append(Donation.created_at < before)
+            conds.append(
+                tuple_(Donation.created_at, Donation.donation_id) < before
+            )
         rows = await self.db.execute(
             select(Donation, Masjid.name)
             .join(Masjid, Masjid.masjid_id == Donation.masjid_id)
             .where(*conds)
-            .order_by(Donation.created_at.desc())
+            .order_by(Donation.created_at.desc(), Donation.donation_id.desc())
             .limit(limit)
         )
         return [(d, name) for d, name in rows.all()]

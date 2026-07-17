@@ -1,0 +1,33 @@
+# MasjidKoi production reverse proxy.
+# Domains are injected from .env.production via docker-compose.prod.yml.
+# Caddy obtains + renews Let's Encrypt certs automatically for each site.
+
+{
+	# Email used by Let's Encrypt for expiry notices.
+	email {$ACME_EMAIL}
+}
+
+# ── API ──────────────────────────────────────────────────────────────────────
+{$API_DOMAIN} {
+	encode gzip zstd
+	reverse_proxy api:8000
+}
+
+# ── Auth (GoTrue) — invite / password-reset email links land here ─────────────
+{$AUTH_DOMAIN} {
+	encode gzip zstd
+	reverse_proxy gotrue:9999
+}
+
+# ── CDN (MinIO object storage) — public photo/avatar reads ────────────────────
+{$CDN_DOMAIN} {
+	encode gzip zstd
+	# Large uploads/downloads — raise the body limit if needed.
+	reverse_proxy minio:9000
+}
+
+# ── Web admin panel ───────────────────────────────────────────────────────────
+{$APP_DOMAIN} {
+	encode gzip zstd
+	reverse_proxy frontend:3000
+}

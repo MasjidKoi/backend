@@ -7,7 +7,6 @@ decision lives in DonationService. The IPN webhook and gateway redirects live in
 """
 
 import uuid
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 
@@ -16,6 +15,7 @@ from app.dependencies.auth import (
     get_current_user,
     require_masjid_admin,
     require_platform_admin,
+    require_platform_admin_mfa,
 )
 from app.dependencies.donation import (
     get_donation_service,
@@ -139,7 +139,7 @@ async def list_my_donations(
     category: str | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
     year: int | None = Query(default=None),
-    cursor: datetime | None = Query(default=None),
+    cursor: str | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     user: CurrentUser = Depends(get_current_user),
     service: DonationService = Depends(get_donation_service),
@@ -322,7 +322,7 @@ async def admin_record_disbursement(
     masjid_id: uuid.UUID,
     body: DisbursementCreate,
     request: Request,
-    user: CurrentUser = Depends(require_platform_admin),
+    user: CurrentUser = Depends(require_platform_admin_mfa),
     service: DonationService = Depends(get_donation_service),
 ) -> DisbursementResponse:
     d = await service.record_disbursement(
@@ -357,7 +357,7 @@ async def admin_refund_donation(
     donation_id: uuid.UUID,
     body: RefundRequest,
     request: Request,
-    user: CurrentUser = Depends(require_platform_admin),
+    user: CurrentUser = Depends(require_platform_admin_mfa),
     service: DonationService = Depends(get_donation_service),
 ) -> DonationStatusResponse:
     return await service.refund_by_id(

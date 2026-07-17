@@ -1,11 +1,12 @@
 import uuid
-from datetime import date
+from datetime import datetime
 from decimal import Decimal
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import CurrentUser
+from app.core.time import DHAKA_TZ
 from app.repositories.donation_repository import DonationRepository
 from app.repositories.masjid_campaign_repository import MasjidCampaignRepository
 from app.repositories.masjid_repository import MasjidRepository
@@ -34,7 +35,7 @@ class MasjidCampaignService:
             )
 
     def _to_response(self, campaign) -> CampaignResponse:
-        today = date.today()
+        today = datetime.now(DHAKA_TZ).date()
         target = campaign.target_amount or Decimal("0")
         raised = campaign.raised_amount or Decimal("0")
         progress_pct = round(float(raised / target * 100), 2) if target > 0 else 0.0
@@ -148,7 +149,7 @@ class MasjidCampaignService:
                 status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found"
             )
 
-        today = date.today()
+        today = datetime.now(DHAKA_TZ).date()
         target = campaign.target_amount or Decimal("0")
         raised = campaign.raised_amount or Decimal("0")
         progress_pct = round(float(raised / target * 100), 2) if target > 0 else 0.0

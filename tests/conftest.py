@@ -47,6 +47,28 @@ from app.models.user_profile import UserProfile
 # sets `PUSH_ENABLED` to — tests must never hit the live Expo Push Service.
 settings.PUSH_ENABLED = False
 
+
+class _FakeRedis:
+    """In-memory Redis stand-in for tests (the suite runs without a real Redis and
+    the app lifespan that would create the client is not started under the ASGI
+    transport). Implements just enough for the rate limiter's atomic counter so
+    the ``fail_closed`` limiters (payment IPN/redirect, report submission) operate
+    normally instead of 503-ing on a missing backend."""
+
+    def __init__(self) -> None:
+        self._counts: dict[str, int] = {}
+
+    async def eval(self, script, numkeys, *args):
+        key = args[0]
+        self._counts[key] = self._counts.get(key, 0) + 1
+        return self._counts[key]
+
+    async def set(self, *args, **kwargs):
+        return True
+
+    async def aclose(self) -> None:
+        return None
+
 TEST_DB_URL = os.getenv(
     "TEST_DATABASE_URL",
     "postgresql+asyncpg://masjidkoi:masjidkoi@localhost:5432/masjidkoi",
@@ -277,6 +299,10 @@ async def client() -> AsyncClient:
             yield session
 
     app.dependency_overrides[get_db] = _override_get_db
+    # The ASGI transport does not run the app lifespan, so app.state.redis is
+    # never created; supply an in-memory stand-in so rate limiters (incl. the
+    # fail_closed ones) work instead of 503-ing on a missing backend.
+    app.state.redis = _FakeRedis()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c

@@ -82,8 +82,9 @@ class DonationHistoryItem(BaseModel):
 
 class DonationHistoryResponse(BaseModel):
     items: list[DonationHistoryItem]
-    # Opaque keyset cursor (the last item's created_at); null when exhausted.
-    next_cursor: datetime | None = None
+    # Opaque keyset cursor encoding the last item's (created_at, donation_id)
+    # stable sort key; pass it back verbatim as ?cursor=. Null when exhausted.
+    next_cursor: str | None = None
 
 
 class PerMasjidTotal(BaseModel):

@@ -56,10 +56,22 @@ USER appuser
 
 EXPOSE 8000
 
-# --proxy-headers + --forwarded-allow-ips=* so request.client.host reflects the
-# real client from Caddy's X-Forwarded-For, not Caddy's container IP — otherwise
-# every external client collapses into one rate-limit bucket and the logs record
-# the proxy (CODEBASE_AUDIT #9). Trusting all upstreams is safe here: the api is
-# only `expose`d on the internal docker network and is unreachable except via
-# Caddy (docker-compose.prod.yml), so no untrusted peer can spoof the header.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# --proxy-headers makes request.client.host reflect the real client from Caddy's
+# X-Forwarded-For instead of Caddy's container IP (so rate-limit buckets and logs
+# are per-client, not per-proxy — CODEBASE_AUDIT #9). The set of upstream hops
+# whose XFF we TRUST is controlled by uvicorn's --forwarded-allow-ips, which is
+# read from the FORWARDED_ALLOW_IPS env var (falling back to 127.0.0.1).
+#
+# SECURITY (CODEBASE_AUDIT #11): this MUST be pinned to the Caddy/reverse-proxy
+# address range ONLY — never "*". The previous value was "*" (trust every
+# upstream). Because Caddy does not currently sanitise/replace an inbound
+# X-Forwarded-For, "*" let a client spoof XFF and rotate the rate-limit key at
+# will. We removed "*"; the trusted set is now supplied at deploy time.
+#
+# TODO(deploy): set FORWARDED_ALLOW_IPS in docker-compose.prod.yml to the Caddy
+# container's docker-network address range (NOT "*"). Left unset it falls back to
+# uvicorn's conservative 127.0.0.1 default — safe (no spoofing) but Caddy sits on
+# the docker network, so until FORWARDED_ALLOW_IPS names the proxy, XFF is NOT
+# trusted and request.client.host will resolve to Caddy's IP. Verify the CIDR
+# against the compose network before enabling.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers"]

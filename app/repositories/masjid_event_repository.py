@@ -1,8 +1,9 @@
 import uuid
-from datetime import date
+from datetime import datetime
 
 from sqlalchemy import func, select
 
+from app.core.time import DHAKA_TZ
 from app.models.masjid_event import EventRsvp, MasjidEvent
 from app.repositories.base import BaseRepository
 
@@ -23,7 +24,7 @@ class MasjidEventRepository(BaseRepository[MasjidEvent]):
         )
         base_filter = (
             MasjidEvent.masjid_id == masjid_id,
-            MasjidEvent.event_date >= date.today(),
+            MasjidEvent.event_date >= datetime.now(DHAKA_TZ).date(),
         )
         count_result = await self.db.execute(select(func.count()).where(*base_filter))
         total = count_result.scalar_one()

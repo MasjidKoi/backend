@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
+from app.core.rate_limit import make_rate_limiter
 from app.core.security import CurrentUser
 from app.dependencies.auth import get_current_user, require_platform_admin
 from app.dependencies.co_admin_invite import get_co_admin_invite_service
@@ -53,6 +54,22 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 _bearer = HTTPBearer(auto_error=True)
 
+# Per-IP rate limits on the password-auth surfaces — throttle credential-stuffing
+# and reset-email abuse. Fail-open (Redis down → skip) matches the app-wide
+# posture: locking admins out of login on a Redis blip is worse than a brief gap
+# in throttling. Login is the tightest; password reset triggers an outbound email
+# so it is capped hardest; refresh is looser as it is called routinely.
+_login_limiter = make_rate_limiter(limit=10, window_s=300, key_prefix="auth_login")
+_refresh_limiter = make_rate_limiter(limit=60, window_s=60, key_prefix="auth_refresh")
+_password_reset_limiter = make_rate_limiter(
+    limit=5, window_s=3600, key_prefix="auth_password_reset"
+)
+# TOTP is a 6-digit code (1M space) — throttle verification so a stolen aal1
+# session can't brute-force the second factor.
+_totp_verify_limiter = make_rate_limiter(
+    limit=10, window_s=300, key_prefix="auth_2fa_verify"
+)
+
 
 # ── Login ──────────────────────────────────────────────────────────────────────
 
@@ -68,7 +85,10 @@ _bearer = HTTPBearer(auto_error=True)
         "require_platform_admin); an aal1 platform-admin token is accepted today."
     ),
 )
-async def login(body: LoginRequest) -> TokenResponse:
+async def login(
+    body: LoginRequest,
+    _rl: None = Depends(_login_limiter),
+) -> TokenResponse:
     data = await gotrue.login_with_password(body.email, body.password)
     return TokenResponse(
         access_token=data["access_token"],
@@ -133,7 +153,10 @@ async def verify_otp(
     response_model=TokenResponse,
     summary="Refresh access token",
 )
-async def refresh(body: RefreshRequest) -> TokenResponse:
+async def refresh(
+    body: RefreshRequest,
+    _rl: None = Depends(_refresh_limiter),
+) -> TokenResponse:
     data = await gotrue.refresh_token(body.refresh_token)
     return TokenResponse(
         access_token=data["access_token"],
@@ -227,6 +250,7 @@ async def enroll_totp(
 async def verify_totp(
     body: TOTPVerifyRequest,
     credentials: HTTPAuthorizationCredentials = Depends(_bearer),
+    _rl: None = Depends(_totp_verify_limiter),
 ) -> TokenResponse:
     data = await gotrue.verify_totp(credentials.credentials, body.factor_id, body.code)
     return TokenResponse(
@@ -262,7 +286,10 @@ async def list_factors(
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Request password reset email",
 )
-async def request_password_reset(body: PasswordResetRequest) -> None:
+async def request_password_reset(
+    body: PasswordResetRequest,
+    _rl: None = Depends(_password_reset_limiter),
+) -> None:
     await gotrue.request_password_reset(body.email)
 
 

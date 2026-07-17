@@ -31,13 +31,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/payments/sslcommerz", tags=["payments"])
 
 # Generous limit per IP — the gateway may legitimately fan IPNs, but a flood is
-# suspicious. Degrades gracefully if Redis is down.
-_ipn_limiter = make_rate_limiter(limit=120, window_s=60, key_prefix="sslcommerz_ipn")
+# suspicious. fail_closed=True: these are unauthenticated, money-adjacent surfaces
+# that each trigger an outbound gateway validation call, so if Redis is down we
+# refuse (503) rather than leave an un-limited amplification/DoS surface open.
+_ipn_limiter = make_rate_limiter(
+    limit=120, window_s=60, key_prefix="sslcommerz_ipn", fail_closed=True
+)
 # The redirect is unauthenticated and, on a success POST, triggers the same
 # outbound gateway validation as the IPN — so it gets the same per-IP cap the IPN
 # has, instead of being an unlimited amplification/DoS surface (CODEBASE_AUDIT #8).
 _redirect_limiter = make_rate_limiter(
-    limit=120, window_s=60, key_prefix="sslcommerz_redirect"
+    limit=120, window_s=60, key_prefix="sslcommerz_redirect", fail_closed=True
 )
 
 _OUTCOMES = {"success", "fail", "cancel"}
@@ -127,20 +131,14 @@ async def sslcommerz_redirect(
                 logger.warning(
                     "redirect-path completion deferred to IPN for tran=%s", tran_id
                 )
-        elif outcome in ("fail", "cancel") and tran_id:
-            # SSLCommerz sends no IPN for a declined/cancelled payment, so the
-            # redirect is the only timely signal — persist PENDING → FAILED here
-            # rather than leaving the row PENDING until the 24h stale sweep.
-            # Safe: fail_from_redirect locks the row and only writes when it is
-            # still PENDING, so a valid IPN that completed first is never lost.
-            try:
-                await service.fail_from_redirect(tran_id=tran_id, reason=outcome)
-            except Exception:  # noqa: BLE001
-                # Best-effort — the stale sweep remains the backstop.
-                logger.warning(
-                    "redirect-path fail/cancel write deferred to sweep for tran=%s",
-                    tran_id,
-                )
+        # NOTE: fail/cancel is deliberately NOT written here (CODEBASE_AUDIT #10).
+        # This endpoint is unauthenticated and the tran_id/donation_id is
+        # client-supplied and NOT gateway-verified (unlike the success path, which
+        # re-validates val_id against SSLCommerz). Failing a donation on a bare id
+        # would let anyone force another donor's PENDING row to FAILED just by
+        # crafting the URL. A genuinely declined/cancelled payment is failed by the
+        # authoritative IPN and, as a backstop, the 24h stale-pending sweep — never
+        # by this navigation-only redirect.
 
     # Validate the id as a UUID so a crafted value can't inject extra path/query
     # segments into the deep-link Location header.
